@@ -1,0 +1,16 @@
+# 1. Security (Secrets)
+.env
+.env.local
+
+# 2. Virtual Environments
+/venv
+/.venv
+/env
+
+# 3. Databases & Data (ADD THIS!)
+chroma_db/
+__pycache__/
+
+# 4. Junk
+*.pyc
+.DS_Store
