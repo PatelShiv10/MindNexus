@@ -1,7 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { User, Cpu, Monitor, Speaker, ShieldAlert, Save, RefreshCw, HardDrive, Download, Trash, BarChart } from 'lucide-react';
 import GlassCard from '../../components/ui/GlassCard';
 import NexusButton from '../../components/ui/NexusButton';
+import SystemResetModal from '../../components/ui/SystemResetModal';
+import SuccessModal from '../../components/ui/SuccessModal';
 import { useAuth } from '../../context/AuthContext';
 
 export default function Settings() {
@@ -13,6 +17,34 @@ export default function Settings() {
   const [particles, setParticles] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [speechRate, setSpeechRate] = useState(1.0);
+  const [isPurging, setIsPurging] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handlePurgeClick = () => {
+    setIsResetModalOpen(true);
+  };
+
+  const confirmPurge = async () => {
+    try {
+      setIsPurging(true);
+      setIsResetModalOpen(false); // Close modal immediately to show loading on button if desired, or keep open. 
+      // Let's close it and show loading on the button or a global loader. 
+      // Actually, the requirement said "Set button state to 'Purging...'".
+      
+      const token = localStorage.getItem('token');
+      await axios.delete('http://localhost:3000/api/documents/purge', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setIsSuccessOpen(true);
+    } catch (error) {
+      console.error("Purge failed:", error);
+      alert("System Reset Failed.");
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -272,11 +304,23 @@ export default function Settings() {
             <h3 className="font-medium text-slate-700 dark:text-slate-200">Purge Memory Bank</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">Delete all indexed documents and graph nodes.</p>
           </div>
-          <NexusButton variant="danger">
-            Purge All Data
+          <NexusButton variant="danger" onClick={handlePurgeClick} disabled={isPurging}>
+            {isPurging ? "Purging..." : "Purge All Data"}
           </NexusButton>
         </div>
       </GlassCard>
+
+      <SystemResetModal 
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={confirmPurge}
+      />
+
+      <SuccessModal
+        isOpen={isSuccessOpen}
+        onClose={() => {}} // Prevent closing without action if desired, or allow close
+        onConfirm={() => { window.location.href = '/nexus'; }}
+      />
     </div>
   );
 }

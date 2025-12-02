@@ -21,6 +21,13 @@ app.use('/api/auth', authRoutes);
 const trainingRoutes = require('./routes/trainingRoutes');
 app.use('/api/training', trainingRoutes);
 
+const documentRoutes = require('./routes/documentRoutes');
+app.use('/api/documents', documentRoutes);
+const chatRoutes = require('./routes/chatRoutes');
+app.use('/api/chat', chatRoutes);
+const graphRoutes = require('./routes/graphRoutes');
+app.use('/api/graph', graphRoutes);
+
 // Bridge Endpoint
 app.get('/api/system-status', async (req, res) => {
   try {

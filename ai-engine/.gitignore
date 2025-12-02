@@ -14,3 +14,6 @@ __pycache__/
 # 4. Junk
 *.pyc
 .DS_Store
+
+static/
+temp_uploads/

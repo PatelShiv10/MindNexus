@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx } from 'clsx';
 import MemoryBankWidget from '../../components/dashboard/MemoryBankWidget';
@@ -7,12 +8,34 @@ import NeuralChatWidget from '../../components/dashboard/NeuralChatWidget';
 
 export default function NexusHome() {
   const [focusMode, setFocusMode] = useState('none'); // 'none' | 'files' | 'graph' | 'chat'
+  const [selectedDocId, setSelectedDocId] = useState(null);
+  const [chatMessages, setChatMessages] = useState([
+    { id: 1, role: 'ai', content: 'Neural interface active. How can I augment your thinking today?' }
+  ]);
+  
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.state?.targetDocId) {
+      setSelectedDocId(location.state.targetDocId);
+      // Clear history state so refresh doesn't stick
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const toggleFocus = (mode) => {
     if (focusMode === mode) {
       setFocusMode('none');
     } else {
       setFocusMode(mode);
+    }
+  };
+
+  const handleFileClick = (docId) => {
+    if (selectedDocId === docId) {
+      setSelectedDocId(null); // Deselect
+    } else {
+      setSelectedDocId(docId);
     }
   };
 
@@ -29,6 +52,8 @@ export default function NexusHome() {
         isCollapsed={focusMode !== 'none' && focusMode !== 'files'}
         onToggleFocus={() => toggleFocus('files')}
         isFocused={focusMode === 'files'}
+        onFileClick={handleFileClick}
+        selectedDocId={selectedDocId}
       />
     </motion.div>
   );
@@ -45,6 +70,7 @@ export default function NexusHome() {
         isCollapsed={focusMode !== 'none' && focusMode !== 'graph'}
         onToggleFocus={() => toggleFocus('graph')}
         isFocused={focusMode === 'graph'}
+        selectedDocId={selectedDocId}
       />
     </motion.div>
   );
@@ -61,6 +87,8 @@ export default function NexusHome() {
         isCollapsed={focusMode !== 'none' && focusMode !== 'chat'}
         onToggleFocus={() => toggleFocus('chat')}
         isFocused={focusMode === 'chat'}
+        messages={chatMessages}
+        setMessages={setChatMessages}
       />
     </motion.div>
   );

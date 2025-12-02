@@ -4,3 +4,10 @@ python-dotenv
 chromadb
 google-generativeai
 pydantic
+pypdf
+langchain
+langchain-community
+sentence-transformers
+langchain-text-splitters
+langchain-google-genai
+

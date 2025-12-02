@@ -102,7 +102,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
     );
 
     return (
-      <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950/30 overflow-hidden flex flex-col max-h-60">
+      <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950/30 overflow-hidden flex flex-col h-60">
         {/* Sticky Search Header */}
         <div className="p-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 sticky top-0 z-10">
           <div className="relative">
@@ -207,9 +207,9 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
                       />
                     </div>
                   </div>
-                  <div className="flex-1 min-h-0 flex flex-col">
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                     <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Link Knowledge Base</label>
-                    <div className="flex-1 min-h-0">
+                    <div className="flex-1 min-h-0 overflow-hidden">
                       <SearchableFileList 
                         files={files}
                         selected={selectedFiles} 
