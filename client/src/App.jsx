@@ -16,6 +16,9 @@ import NexusHome from './pages/dashboard/NexusHome';
 import Settings from './pages/dashboard/Settings';
 import Archives from './pages/dashboard/Archives';
 import Training from './pages/dashboard/Training';
+import ExamSession from './pages/dashboard/ExamSession';
+import ExamReport from './pages/dashboard/ExamReport';
+import SocraticTutor from './pages/dashboard/SocraticTutor';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -61,9 +64,12 @@ function App() {
               }
             >
               <Route index element={<NexusHome />} />
-              <Route path="settings" element={<Settings />} />
+              {/* <Route path="settings" element={<Settings />} /> */}
               <Route path="archives" element={<Archives />} />
-              <Route path="training" element={<Training />} />
+              {/* <Route path="training" element={<Training />} /> */}
+              <Route path="exam/:id" element={<ExamSession />} />
+              <Route path="exam-report/:id" element={<ExamReport />} />
+              <Route path="tutor" element={<SocraticTutor />} />
               {/* Placeholders for other routes */}
               <Route path="memory" element={<div className="p-8 text-slate-500">Memory Bank Module Loading...</div>} />
               <Route path="chat" element={<div className="p-8 text-slate-500">Neural Chat Module Loading...</div>} />

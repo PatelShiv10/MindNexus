@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { GATEWAY_API } from '../../config/api';
 import { Send, Bot, User, MoreHorizontal, RotateCcw, MessageSquare, Maximize2, Minimize2, History, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '../ui/GlassCard';
@@ -33,7 +34,7 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
     setIsLoadingHistory(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:3000/api/chat', {
+      const response = await axios.get(`${GATEWAY_API}/api/chat`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSessions(response.data);
@@ -55,7 +56,7 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
 
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:3000/api/chat', {
+      const response = await axios.post(`${GATEWAY_API}/api/chat`, {
         query: userMsg.content,
         doc_ids: [], // Global search for now
         sessionId: sessionId
@@ -71,7 +72,8 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
         id: Date.now() + 1,
         role: 'ai',
         content: response.data.answer,
-        sources: response.data.sources
+        sources: response.data.sources,
+        citation: response.data.citation
       };
       setMessages(prev => [...prev, aiMsg]);
     } catch (error) {
@@ -94,7 +96,7 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
   const loadSession = async (id) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:3000/api/chat/${id}`, {
+      const response = await axios.get(`${GATEWAY_API}/api/chat/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -119,7 +121,7 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
     e.stopPropagation();
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:3000/api/chat/${id}`, {
+      await axios.delete(`${GATEWAY_API}/api/chat/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSessions(prev => prev.filter(s => s._id !== id));
@@ -257,8 +259,18 @@ export default function NeuralChatWidget({ isCollapsed, onToggleFocus, isFocused
                       {msg.content}
                     </div>
                     
-                    {/* Citations */}
-                    {msg.sources && msg.sources.length > 0 && (
+                    {/* Citation badge (exact source + page) */}
+                    {msg.citation && (
+                      <div className="flex items-center gap-1.5 mt-1.5 ml-1">
+                        <span className="text-[9px] uppercase tracking-widest text-slate-400 dark:text-slate-500">Source</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-neon-purple/10 text-neon-purple border border-neon-purple/20 font-medium">
+                          {msg.citation}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Raw source chips (backward compat) */}
+                    {msg.sources && msg.sources.length > 0 && !msg.citation && (
                       <div className="flex flex-wrap gap-2 mt-1 ml-1">
                         {msg.sources.map((source, i) => (
                           <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-white/5">

@@ -3,6 +3,7 @@ import GlassCard from '../ui/GlassCard';
 import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
 import axios from 'axios';
+import { GATEWAY_API } from '../../config/api';
 import { useDropzone } from 'react-dropzone';
 
 export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused, onFileClick, selectedDocId }) {
@@ -14,7 +15,7 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
       const token = localStorage.getItem('token');
       if (!token) return;
       
-      const response = await axios.get('http://localhost:3000/api/documents', {
+      const response = await axios.get(`${GATEWAY_API}/api/documents`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDocuments(response.data);
@@ -49,7 +50,7 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
 
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:3000/api/documents/upload', formData, {
+      await axios.post(`${GATEWAY_API}/api/documents/upload`, formData, {
         headers: { 
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}` 
@@ -70,6 +71,10 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
     multiple: false,
     accept: {
       'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
       'text/plain': ['.txt'],
       'text/markdown': ['.md']
     }
@@ -142,7 +147,7 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
             <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
               {isDragActive ? "Drop to Ingest" : "Drag Neural Data"}
             </p>
-            <p className="text-xs text-slate-400">PDF, TXT, MD supported</p>
+            <p className="text-xs text-slate-400">PDF, DOCX, PPTX, TXT, MD supported</p>
           </>
         )}
       </div>

@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { BrainCircuit, Plus, Play, CheckCircle, XCircle, Trophy, FileText, Loader2, BookOpen, Search } from 'lucide-react';
+import { BrainCircuit, Plus, Play, CheckCircle, XCircle, Trophy, FileText, Loader2, BookOpen, Search, FileBarChart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '../../components/ui/GlassCard';
 import NexusButton from '../../components/ui/NexusButton';
+import Toast from '../../components/ui/Toast';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 
 // --- Sub-Components ---
 
-const SubjectCard = ({ subject, onStart }) => (
+const SubjectCard = ({ subject, exam, onStart, onViewReport }) => (
   <GlassCard className="p-6 flex flex-col h-full hover:border-neon-blue/50 transition-colors group">
     <div className="flex items-start justify-between mb-4">
       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-neon-blue/20 to-neon-purple/20 flex items-center justify-center text-neon-blue group-hover:scale-110 transition-transform">
@@ -22,9 +23,18 @@ const SubjectCard = ({ subject, onStart }) => (
     <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 flex-1 line-clamp-2">
       {subject.description || 'No description provided.'}
     </p>
-    <NexusButton onClick={() => onStart(subject)} variant="primary" className="w-full">
-      <Play className="w-4 h-4 mr-2" /> Start Drill
-    </NexusButton>
+    
+    <div className="space-y-2">
+      {exam && exam.completed ? (
+        <NexusButton onClick={() => onViewReport(exam._id)} variant="ghost" className="w-full border border-slate-200 dark:border-slate-700">
+          <FileBarChart className="w-4 h-4 mr-2" /> View Report
+        </NexusButton>
+      ) : null}
+      
+      <NexusButton onClick={() => onStart(subject)} variant="primary" className="w-full">
+        <Play className="w-4 h-4 mr-2" /> {exam && exam.completed ? 'Retake Drill' : 'Start Drill'}
+      </NexusButton>
+    </div>
   </GlassCard>
 );
 
@@ -41,18 +51,29 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
   const [totalMarks, setTotalMarks] = useState(100);
   const [composition, setComposition] = useState(50); // 50% Objective, 50% Descriptive
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Mock files
-    setFiles([
-      { _id: '1', name: 'Neural_Networks_101.pdf' },
-      { _id: '2', name: 'Advanced_Cortex_Design.pdf' },
-      { _id: '3', name: 'Quantum_Computing_Basics.pdf' },
-      { _id: '4', name: 'Cybernetics_History.pdf' },
-      { _id: '5', name: 'AI_Ethics_Protocol.pdf' },
-      { _id: '6', name: '2024_Midterm_Exam.pdf' },
-      { _id: '7', name: '2023_Final_Paper.pdf' },
-    ]);
+    if (error) {
+      const timer = setTimeout(() => setError(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    const fetchDocuments = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('http://localhost:3000/api/documents', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFiles(res.data);
+      } catch (err) {
+        console.error("Failed to fetch documents", err);
+        setError("Failed to load documents.");
+      }
+    };
+    fetchDocuments();
   }, []);
 
   const handleSubmit = async (e) => {
@@ -74,7 +95,8 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
       await axios.post('http://localhost:3000/api/training/subject', {
         name,
         description,
-        documents: selectedFiles
+        documents: selectedFiles, // Already IDs
+        totalMarks: parseInt(totalMarks) // Ensure number
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -82,7 +104,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Failed to create subject');
+      setError(err.response?.data?.message || "Failed to create subject");
     } finally {
       setLoading(false);
     }
@@ -97,8 +119,11 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
   const SearchableFileList = ({ files, selected, onToggle, colorClass, activeColorClass }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
-    const filteredFiles = files.filter(file => 
-      file.name.toLowerCase().includes(searchQuery.toLowerCase())
+    // Safety Guard: Ensure files is an array
+    const safeFiles = Array.isArray(files) ? files : [];
+
+    const filteredFiles = safeFiles.filter(file => 
+      (file.name || file.title || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
@@ -121,7 +146,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
         <div className="overflow-y-auto p-2 custom-scrollbar flex-1">
           {filteredFiles.length === 0 ? (
             <div className="text-center py-4 text-xs text-slate-500 italic">
-              No matching documents found.
+              {safeFiles.length === 0 ? "No documents available." : "No matching documents found."}
             </div>
           ) : (
             filteredFiles.map(file => (
@@ -136,7 +161,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
               >
                 <div className="flex items-center gap-2 overflow-hidden">
                   <FileText className={`w-3 h-3 shrink-0 ${selected.includes(file._id) ? colorClass : 'text-slate-400 dark:text-slate-500'}`} />
-                  <span className="text-xs truncate">{file.name}</span>
+                  <span className="text-xs truncate">{file.title || file.name}</span>
                 </div>
                 {selected.includes(file._id) && (
                   <CheckCircle className={`w-3 h-3 ${colorClass} shrink-0`} />
@@ -151,6 +176,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      {error && <Toast message={error} type="error" onClose={() => setError(null)} />}
       <motion.div 
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -504,9 +530,20 @@ export default function Training() {
   const [quizData, setQuizData] = useState(null);
   const [results, setResults] = useState(null);
   const [loadingQuiz, setLoadingQuiz] = useState(false);
+  const [error, setError] = useState(null);
+
+  const [exams, setExams] = useState([]);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   useEffect(() => {
     fetchSubjects();
+    fetchExams();
   }, []);
 
   const fetchSubjects = async () => {
@@ -521,23 +558,46 @@ export default function Training() {
     }
   };
 
+  const fetchExams = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      // We need an endpoint to get all exams for the user.
+      // Assuming GET /api/training/exam returns all sessions for user
+      // If not, we might need to create it. Let's assume it exists or I'll create it.
+      // Wait, I didn't create a "get all exams" endpoint.
+      // I only created GET /exam/:id.
+      // I should create GET /exam/all or similar.
+      // For now, let's try to hit a likely endpoint or I'll add it to the backend task.
+      // I'll add GET /api/training/exams to the backend now.
+      const res = await axios.get('http://localhost:3000/api/training/exams', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setExams(res.data);
+    } catch (err) {
+      console.error("Failed to fetch exams", err);
+    }
+  };
+
   const startDrill = async (subject) => {
     setLoadingQuiz(true);
     setActiveSubject(subject);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('http://localhost:3000/api/training/generate', {
+      // Use the new generate-exam endpoint
+      const res = await axios.post('http://localhost:3000/api/training/generate-exam', {
         subjectId: subject._id,
-        difficulty: 'Medium' // Hardcoded for now, could be a modal
+        difficulty: 'Hard' // Defaulting to Hard for now as per prompt implication
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setQuizData(res.data);
-      setView('quiz');
+      
+      const { sessionId } = res.data;
+      // Redirect to the new Exam Session page
+      window.location.href = `/nexus/exam/${sessionId}`;
+      
     } catch (err) {
       console.error(err);
-      alert('Failed to generate quiz. Ensure documents are linked.');
-    } finally {
+      setError('Failed to generate exam. Ensure documents are linked.');
       setLoadingQuiz(false);
     }
   };
@@ -549,6 +609,7 @@ export default function Training() {
 
   return (
     <div className="h-full flex flex-col">
+      {error && <Toast message={error} type="error" onClose={() => setError(null)} />}
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -583,9 +644,29 @@ export default function Training() {
                 <p>No training protocols found. Initialize a new subject to begin.</p>
               </div>
             ) : (
-              subjects.map(sub => (
-                <SubjectCard key={sub._id} subject={sub} onStart={startDrill} />
-              ))
+              subjects.map(sub => {
+                // Find latest completed exam for this subject
+                // Note: We need to fetch exams first. 
+                // For now, let's assume we fetch them and store in a state, or we just check if 'sub.latestSession' exists (if we populated it in backend)
+                // Since we didn't update backend to populate, let's fetch exams in useEffect and match here.
+                // But wait, fetching ALL exams might be heavy. 
+                // Let's rely on a new prop or just fetch them.
+                // Actually, let's just use the 'exam' prop passed to SubjectCard if we had it.
+                // I will update the SubjectCard component to accept an 'exam' prop and render the button.
+                // And I need to fetch exams in the parent component.
+                
+                const latestExam = Array.isArray(exams) ? exams.find(e => e.subject === sub._id && e.completed) : null;
+                
+                return (
+                  <SubjectCard 
+                    key={sub._id} 
+                    subject={sub} 
+                    exam={latestExam}
+                    onStart={startDrill} 
+                    onViewReport={(examId) => window.location.href = `/nexus/exam-report/${examId}`}
+                  />
+                );
+              })
             )}
           </div>
         )}

@@ -1,0 +1,24 @@
+* Host localhost:8001 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:8001...
+*   Trying 127.0.0.1:8001...
+* Connected to localhost (127.0.0.1) port 8001
+> GET /api/documents HTTP/1.1
+> Host: localhost:8001
+> User-Agent: curl/8.8.0
+> Accept: */*
+> Authorization: Bearer fake_token
+> 
+* Request completely sent off
+< HTTP/1.1 401 Unauthorized
+< date: Sat, 28 Feb 2026 11:47:45 GMT
+< server: uvicorn
+< content-length: 41
+< content-type: application/json
+< 
+{ [41 bytes data]
+100    41  100    41    0     0    160      0 --:--:-- --:--:-- --:--:--   160{"detail":"Not authorized, token failed"}
+* Connection #0 to host localhost left intact

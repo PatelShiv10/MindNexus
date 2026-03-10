@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────
+# MindNexus Python Gateway — .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment secrets
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Byte-compiled
+*.pyc
+
+# Uploads / temp files
+uploads/
+*.tmp

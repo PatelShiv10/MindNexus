@@ -26,10 +26,10 @@ export default function DashboardLayout() {
   }, []);
 
   const navItems = [
-    { icon: LayoutDashboard, label: 'Nexus', path: '/nexus' },
-    { icon: Database, label: 'Archives', path: '/nexus/archives' },
-    { icon: BrainCircuit, label: 'Training', path: '/nexus/training' },
-    { icon: Settings, label: 'Settings', path: '/nexus/settings' },
+    { icon: LayoutDashboard, label: 'Nexus',  path: '/nexus' },
+    { icon: Database,        label: 'Archives', path: '/nexus/archives' },
+    { icon: BrainCircuit,   label: 'AI Tutor', path: '/nexus/tutor' },
+    // { icon: Settings, label: 'Settings', path: '/nexus/settings' },
   ];
 
   return (
@@ -164,10 +164,10 @@ export default function DashboardLayout() {
           </div>
 
           <div className="flex items-center gap-3 md:gap-4">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-medium">
+            {/* <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-medium">
               <Activity className="w-3 h-3" />
               <span>Network: Stable</span>
-            </div>
+            </div> */}
             <ThemeToggle />
           </div>
         </header>

@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET || 'secret123', {
+    return jwt.sign({ id }, process.env.JWT_SECRET || 'mindnexus_super_secret_jwt_key_that_is_at_least_32_bytes_long_123!', {
         expiresIn: '30d',
     });
 };

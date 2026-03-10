@@ -10,6 +10,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import NexusButton from '../../components/ui/NexusButton';
 import { clsx } from 'clsx';
 import axios from 'axios';
+import { GATEWAY_API } from '../../config/api';
 import DeleteConfirmationModal from '../../components/ui/DeleteConfirmationModal';
 
 const StatusBadge = ({ status }) => {
@@ -39,6 +40,10 @@ const FileIcon = ({ type }) => {
   const t = type ? type.toUpperCase() : 'FILE';
   switch (t) {
     case 'PDF': return <FileText className="w-8 h-8 text-red-400" />;
+    case 'DOCX':
+    case 'DOC': return <FileText className="w-8 h-8 text-blue-500" />;
+    case 'PPTX':
+    case 'PPT': return <FileText className="w-8 h-8 text-orange-500" />;
     case 'MD':
     case 'TXT': return <FileCode className="w-8 h-8 text-blue-400" />;
     default: return <File className="w-8 h-8 text-slate-400" />;
@@ -69,7 +74,7 @@ export default function Archives() {
         return;
       }
 
-      const response = await axios.get('http://localhost:3000/api/documents', {
+      const response = await axios.get(`${GATEWAY_API}/api/documents`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -95,7 +100,7 @@ export default function Archives() {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:3000/api/documents/${fileToDelete._id}`, {
+      await axios.delete(`${GATEWAY_API}/api/documents/${fileToDelete._id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -138,6 +143,8 @@ export default function Archives() {
     }
     if (mimeType === 'application/pdf') return 'PDF';
     if (mimeType === 'text/plain') return 'TXT';
+    if (mimeType?.includes('word')) return 'DOCX';
+    if (mimeType?.includes('presentation')) return 'PPTX';
     return 'FILE';
   };
 
@@ -174,6 +181,8 @@ export default function Archives() {
             >
               <option value="All">All Types</option>
               <option value="PDF">PDF</option>
+              <option value="DOCX">DOCX</option>
+              <option value="PPTX">PPTX</option>
               <option value="TXT">TXT</option>
               <option value="MD">MD</option>
             </select>

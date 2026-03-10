@@ -1,8 +1,10 @@
 import { useRef, useEffect, useState } from 'react';
 import axios from 'axios';
+import { GATEWAY_API } from '../../config/api';
 import ForceGraph3D from 'react-force-graph-3d';
 import { Maximize2, Minimize2, RefreshCw, ZoomIn, ZoomOut, Play, Pause, Network, Monitor, Loader2 } from 'lucide-react';
 import GlassCard from '../ui/GlassCard';
+import Toast from '../ui/Toast';
 import { useTheme } from '../../context/ThemeContext';
 import { clsx } from 'clsx';
 import * as THREE from 'three';
@@ -13,9 +15,11 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
   const { theme } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [podcastStatus, setPodcastStatus] = useState('unknown'); // 'unknown'|'processing'|'ready'|'not_started'
+  const pollingRef = useRef(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
-  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+  const [notification, setNotification] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [timeline, setTimeline] = useState([]);
@@ -31,6 +35,11 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
 
   useEffect(() => {
     fetchGraphData();
+    // Reset and check for podcast when document changes
+    if (selectedDocId) {
+      resetPodcastState();
+      checkForExistingPodcast();
+    }
   }, [selectedDocId]);
 
   useEffect(() => {
@@ -54,8 +63,8 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
     try {
       const token = localStorage.getItem('token');
       const url = selectedDocId 
-        ? `http://localhost:3000/api/graph?doc_id=${selectedDocId}`
-        : 'http://localhost:3000/api/graph';
+        ? `${GATEWAY_API}/api/graph?doc_id=${selectedDocId}`
+        : `${GATEWAY_API}/api/graph`;
         
       const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
@@ -96,9 +105,137 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
     }
   };
 
+  const resetPodcastState = () => {
+    // Stop any active polling
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    // Pause current audio if playing
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setIsPlaying(false);
+    setIsGenerating(false);
+    setPodcastStatus('unknown');
+    setAudioUrl(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setTimeline([]);
+    timelineRef.current = [];
+    setActiveNodeId(null);
+    lastFocusedNodeRef.current = null;
+  };
+
+  // Load a ready podcast into the audio player (without auto-playing)
+  const loadPodcast = (url, fetchedTimeline) => {
+    setAudioUrl(url);
+    setTimeline(fetchedTimeline);
+    timelineRef.current = fetchedTimeline;
+    setPodcastStatus('ready');
+    setIsGenerating(false);
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio(url);
+      audioRef.current.onended = () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setActiveNodeId(null);
+        lastFocusedNodeRef.current = null;
+      };
+      audioRef.current.ontimeupdate = () => {
+        const time = audioRef.current.currentTime;
+        setCurrentTime(time);
+        const currentTimeline = timelineRef.current;
+        if (currentTimeline.length > 0 && fgRef.current) {
+          const activeCue = currentTimeline.find(t => Math.abs(time - t.time) < 2);
+          if (activeCue && activeCue.nodeId !== lastFocusedNodeRef.current) {
+            lastFocusedNodeRef.current = activeCue.nodeId;
+            setActiveNodeId(activeCue.nodeId);
+            const node = graphDataRef.current.nodes.find(n => n.id.toLowerCase() === activeCue.nodeId.toLowerCase());
+            if (node) {
+              const distance = 150;
+              const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+              fgRef.current.cameraPosition(
+                { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+                { x: node.x, y: node.y, z: node.z },
+                3000
+              );
+              showToast(`Focusing: ${node.id}`, 'info');
+            }
+          }
+        }
+      };
+      audioRef.current.onloadedmetadata = () => setDuration(audioRef.current.duration);
+      audioRef.current.playbackRate = playbackRate;
+    }
+  };
+
+  const checkForExistingPodcast = async () => {
+    if (!selectedDocId) return;
+
+    try {
+      const token = localStorage.getItem('token');
+
+      // 1. First check status (fast, non-blocking)
+      const statusRes = await axios.get(
+        `${GATEWAY_API}/api/documents/podcast-status/${selectedDocId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const { status } = statusRes.data;
+      setPodcastStatus(status);
+
+      if (status === 'ready') {
+        // Podcast is cached - fetch the full data
+        const podcastRes = await axios.post(
+          `${GATEWAY_API}/api/documents/podcast`,
+          { doc_id: selectedDocId },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (podcastRes.data.audio_url) {
+          loadPodcast(podcastRes.data.audio_url, podcastRes.data.timeline || []);
+          showToast('Podcast ready — click Play!', 'success');
+        }
+      } else if (status === 'processing') {
+        // Podcast is being generated in background — poll until done
+        setIsGenerating(true);
+        showToast('Podcast is being prepared...', 'info');
+        pollingRef.current = setInterval(async () => {
+          try {
+            const pollStatus = await axios.get(
+              `${GATEWAY_API}/api/documents/podcast-status/${selectedDocId}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (pollStatus.data.status === 'ready') {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+              const podcastRes = await axios.post(
+                `${GATEWAY_API}/api/documents/podcast`,
+                { doc_id: selectedDocId },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              if (podcastRes.data.audio_url) {
+                loadPodcast(podcastRes.data.audio_url, podcastRes.data.timeline || []);
+                showToast('Podcast ready — click Play!', 'success');
+              }
+            }
+          } catch (e) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+            setIsGenerating(false);
+          }
+        }, 4000);
+      }
+      // If 'not_started', do nothing — user will trigger generation on Play
+    } catch (error) {
+      console.log('Could not check podcast status:', error.message);
+    }
+  };
+
   const showToast = (message, type = 'info') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
   };
 
   const formatTime = (seconds) => {
@@ -109,97 +246,89 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
   };
 
   const togglePlayback = async () => {
-    // Case A: Audio is Playing -> Pause
+    // Case A: Audio is playing -> Pause
     if (isPlaying && audioRef.current) {
       audioRef.current.pause();
       setIsPlaying(false);
       return;
     }
 
-    // Case B: Audio is Paused (but exists) -> Play
+    // Case B: Podcast is still being generated in background -> wait
+    if (isGenerating || podcastStatus === 'processing') {
+      showToast('Podcast is still being prepared, please wait...', 'info');
+      return;
+    }
+
+    // Case C: Audio is loaded and paused -> resume
     if (audioRef.current && audioUrl) {
       audioRef.current.play();
       setIsPlaying(true);
       return;
     }
 
-    // Case C: No Audio Yet (First Play) -> Generate
+    // Case D: No document selected
     if (!selectedDocId) {
-      showToast("Please select a document first.", "error");
+      showToast('Please select a document first.', 'error');
       return;
     }
 
+    // Case E: First Play - check status then generate if needed
     setIsGenerating(true);
+    showToast('Generating podcast...', 'info');
+
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'http://localhost:3000/api/documents/podcast', 
+        `${GATEWAY_API}/api/documents/podcast`,
         { doc_id: selectedDocId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const url = response.data.audio_url;
-      const fetchedTimeline = response.data.timeline || [];
-      setAudioUrl(url);
-      setTimeline(fetchedTimeline);
-      timelineRef.current = fetchedTimeline;
-
-      // Create Audio Object
-      if (!audioRef.current) {
-        audioRef.current = new Audio(url);
-        audioRef.current.onended = () => {
-          setIsPlaying(false);
-          setCurrentTime(0);
-          setActiveNodeId(null);
-          lastFocusedNodeRef.current = null; // Reset focus tracking
-        };
-        audioRef.current.ontimeupdate = () => {
-          const time = audioRef.current.currentTime;
-          setCurrentTime(time);
-          
-          // Cinematic Sync Logic (Refactored)
-          const currentTimeline = timelineRef.current;
-          if (currentTimeline.length > 0 && fgRef.current) {
-            // Find active cue with 2s buffer
-            const activeCue = currentTimeline.find(t => Math.abs(time - t.time) < 2);
-            
-            if (activeCue && activeCue.nodeId !== lastFocusedNodeRef.current) {
-              lastFocusedNodeRef.current = activeCue.nodeId;
-              setActiveNodeId(activeCue.nodeId);
-              
-              // Find node in graph data using REF
-              const node = graphDataRef.current.nodes.find(n => n.id.toLowerCase() === activeCue.nodeId.toLowerCase());
-              
-              if (node) {
-                // Rotate camera to focus on node
-                const distance = 150;
-                const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
-
-                fgRef.current.cameraPosition(
-                  { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, // New position
-                  { x: node.x, y: node.y, z: node.z }, // Look at node
-                  3000 // Transition duration (ms) - Slower for cinematic feel
-                );
-                
-                showToast(`Focusing: ${node.id}`, 'info');
+      if (response.data.status === 'processing') {
+        // Background task is running, start polling
+        setPodcastStatus('processing');
+        showToast('Podcast is generating in background...', 'info');
+        pollingRef.current = setInterval(async () => {
+          try {
+            const pollStatus = await axios.get(
+              `${GATEWAY_API}/api/documents/podcast-status/${selectedDocId}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (pollStatus.data.status === 'ready') {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+              const podcastRes = await axios.post(
+                `${GATEWAY_API}/api/documents/podcast`,
+                { doc_id: selectedDocId },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              if (podcastRes.data.audio_url) {
+                loadPodcast(podcastRes.data.audio_url, podcastRes.data.timeline || []);
+                showToast('Podcast ready! Click Play to listen.', 'success');
+                setIsGenerating(false);
               }
             }
+          } catch (e) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+            setIsGenerating(false);
           }
-        };
-        audioRef.current.onloadedmetadata = () => setDuration(audioRef.current.duration);
-        audioRef.current.playbackRate = playbackRate; // Apply current speed
-      } else {
-        audioRef.current.src = url;
-        // Update timeline ref if re-using audio object for new doc
-        timelineRef.current = fetchedTimeline;
+        }, 4000);
+        return;
       }
+
+      // Podcast was generated synchronously
+      const url = response.data.audio_url;
+      const fetchedTimeline = response.data.timeline || [];
+      loadPodcast(url, fetchedTimeline);
 
       await audioRef.current.play();
       setIsPlaying(true);
+      showToast('Podcast ready!', 'success');
 
     } catch (error) {
-      console.error("Error generating podcast:", error);
-      showToast("Failed to generate podcast. Please try again.", "error");
+      console.error('Error generating podcast:', error);
+      showToast('Failed to generate podcast. Please try again.', 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -253,15 +382,14 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
       </div>
 
       {/* Toast Notification - Moved above the player dock */}
-      <div className={clsx(
-        "absolute bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full shadow-lg backdrop-blur-md transition-all duration-300 transform",
-        toast.show ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0 pointer-events-none",
-        toast.type === 'error' 
-          ? "bg-white/90 border border-red-200 text-red-600 dark:bg-slate-900/90 dark:border-red-500/30 dark:text-red-400"
-          : "bg-white/90 border border-slate-200 text-slate-700 dark:bg-slate-900/90 dark:border-slate-700 dark:text-slate-200"
-      )}>
-        <span className="text-sm font-medium">{toast.message}</span>
-      </div>
+      {/* Toast Notification - Moved above the player dock */}
+      {notification && (
+        <Toast 
+          message={notification.message} 
+          type={notification.type} 
+          onClose={() => setNotification(null)} 
+        />
+      )}
 
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
         <button 
@@ -380,10 +508,10 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
           {/* Play Button (Glowing Orb) */}
           <button 
             onClick={togglePlayback}
-            disabled={isGenerating}
+            disabled={isGenerating && !audioUrl}
             className="w-10 h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white flex items-center justify-center shadow-lg shadow-cyan-500/40 hover:scale-110 transition-transform duration-300 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           >
-            {isGenerating ? (
+            {isGenerating && !audioUrl ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : isPlaying ? (
               <Pause className="w-5 h-5 fill-current" />

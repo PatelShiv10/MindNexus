@@ -1,12 +1,17 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ──────────────────────────────────────────────
+// NOTE: This server now handles ONLY Authentication.
+// All other routes (documents, chat, graph) are served
+// by the Python FastAPI gateway (python-gateway/).
+// ──────────────────────────────────────────────
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
@@ -15,34 +20,22 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// Request Logger
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Auth Routes only
 app.use('/api/auth', authRoutes);
-const trainingRoutes = require('./routes/trainingRoutes');
-app.use('/api/training', trainingRoutes);
 
-const documentRoutes = require('./routes/documentRoutes');
-app.use('/api/documents', documentRoutes);
-const chatRoutes = require('./routes/chatRoutes');
-app.use('/api/chat', chatRoutes);
-const graphRoutes = require('./routes/graphRoutes');
-app.use('/api/graph', graphRoutes);
-
-// Bridge Endpoint
-app.get('/api/system-status', async (req, res) => {
-  try {
-    const aiResponse = await axios.get(`${process.env.AI_ENGINE_URL}/health`);
-    if (aiResponse.data.status === 'healthy') {
-      res.json({ gateway: "Online", ai_engine: "Online" });
-    } else {
-      res.json({ gateway: "Online", ai_engine: "Offline" });
-    }
-  } catch (error) {
-    console.error("Error connecting to AI Engine:", error.message);
-    res.json({ gateway: "Online", ai_engine: "Offline" });
-  }
+// Health check
+app.get('/api/auth/health', (req, res) => {
+  res.json({ status: 'Auth server running', port: PORT });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`[Auth Server] Running on port ${PORT}`);
 });

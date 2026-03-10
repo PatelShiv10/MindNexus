@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { GATEWAY_API } from '../../config/api';
 import { User, Cpu, Monitor, Speaker, ShieldAlert, Save, RefreshCw, HardDrive, Download, Trash, BarChart } from 'lucide-react';
 import GlassCard from '../../components/ui/GlassCard';
 import NexusButton from '../../components/ui/NexusButton';
@@ -34,7 +35,7 @@ export default function Settings() {
       // Actually, the requirement said "Set button state to 'Purging...'".
       
       const token = localStorage.getItem('token');
-      await axios.delete('http://localhost:3000/api/documents/purge', {
+      await axios.delete(`${GATEWAY_API}/api/documents/purge`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setIsSuccessOpen(true);
