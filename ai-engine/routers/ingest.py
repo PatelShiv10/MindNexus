@@ -14,13 +14,35 @@ async def ingest_endpoint(
     return await ingest_document(file, doc_id, user_id, background_tasks)
 
 
+from pydantic import BaseModel
+
+class YouTubeRequest(BaseModel):
+    url: str
+
 @router.post("/ingest/youtube")
 async def ingest_youtube_endpoint(
-    url: str = Body(...),
-    # Use optional forms, but practically we should just ensure gateway uses Body payload for doc_id/user_id in reality.
-    # Gateway passes { url } currently in client side axios request but we'll adapt to standard payload. 
-    # For now gateway isn't passing doc_id and user_id for YouTube explicitly in the user payload but is required.
-    # Let's let Gateway handle the forwarding, Gateway actually forwards to ai-engine, so we need to match Gateway API
+    request: YouTubeRequest,
+    doc_id: str,
+    user_id: str,
+    background_tasks: BackgroundTasks = None
 ):
-    pass
+    try:
+        # Call the ingest_youtube service functionality
+        result = await ingest_youtube(
+            url=request.url,
+            doc_id=doc_id,
+            user_id=user_id,
+            background_tasks=background_tasks
+        )
+        # Match expected backend output
+        return {
+            "status": "success", 
+            "message": "YouTube video successfully embedded.", 
+            "chunks": result.get("chunks", 0), 
+            "title": result.get("title", "")
+        }
+    except Exception as e:
+        # The service handles its own exceptions and raises HTTPException, so this provides a fallback
+        raise
+
 

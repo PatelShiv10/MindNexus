@@ -3,6 +3,7 @@ os.environ["SCARF_NO_ANALYTICS"] = "true"
 import shutil
 import base64
 import io
+import traceback
 
 from fastapi import UploadFile, HTTPException, BackgroundTasks
 from langchain_core.messages import HumanMessage
@@ -15,7 +16,8 @@ from core.chroma import chroma_client
 from core.llm import embedding_function, llm_vision
 
 from youtube_transcript_api import YouTubeTranscriptApi
-from pytube import YouTube
+import requests
+import re
 
 
 def _describe_image(b64_data: str, mime: str = "jpeg") -> str:
@@ -169,34 +171,47 @@ def _parse_text(path: str) -> list[Document]:
     return [Document(page_content=content)] if content.strip() else []
 
 
+def extract_video_id(url: str) -> str:
+    # Matches standard youtube.com/watch?v=, youtu.be/, and embed/ formats
+    regex = r"(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^\"&?\/\s]{11})"
+    match = re.search(regex, url)
+    if match:
+        return match.group(1)
+    raise ValueError("Could not extract a valid 11-character YouTube Video ID from the provided URL.")
+
 def _parse_youtube(url: str) -> tuple[str, list[Document]]:
     """Parse a YouTube URL to extract its title and time-stamped transcript."""
-    try:
-        yt = YouTube(url)
-        video_id = yt.video_id
-        title = yt.title
-    except Exception as e:
-        print(f"WARNING: PyTube failed to fetch metadata: {e}")
-        # fallback if pytube fails (often due to cipher changes)
-        import re
-        match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
-        if not match:
-            raise ValueError("Invalid YouTube URL")
-        video_id = match.group(1)
-        title = f"YouTube Video ({video_id})"
+    # 1. Extract Video ID
+    video_id = extract_video_id(url)
 
+    # 2. Fetch Video Title via oEmbed
+    title = f"YouTube Video ({video_id})"
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
+        response = requests.get(oembed_url, timeout=5)
+        if response.status_code == 200:
+            title = response.json().get("title", title)
     except Exception as e:
-        raise ValueError(f"Could not retrieve transcript (captions might be disabled): {e}")
+        print(f"WARNING: oEmbed fetch failed: {e}")
 
+    # 3. Fetch Transcript
+    try:
+        ytt_api = YouTubeTranscriptApi()
+        transcript = ytt_api.fetch(video_id)
+    except Exception as e:
+        raise ValueError(f"Could not retrieve transcript. Ensure the video has closed captions enabled. (Details: {e})")
+
+    # 4. Format with Timestamps
     text_parts = []
-    for item in transcript:
-        start_seconds = item["start"]
+    for snippet in transcript:
+        # Safe extraction handles both the new Object format and the old Dictionary format
+        text = getattr(snippet, 'text', None) or snippet.get('text', '')
+        start_seconds = getattr(snippet, 'start', None) or snippet.get('start', 0.0)
+        
         m, s = divmod(int(start_seconds), 60)
         h, m = divmod(m, 60)
-        timestamp = f"[{h:02d}:{m:02d}:{s:02d}]" if h > 0 else f"[{m:02d}:{s:02d}]"
-        text_parts.append(f"{timestamp} {item['text']}")
+        timestamp = f"**[{h:02d}:{m:02d}:{s:02d}]**" if h > 0 else f"**[{m:02d}:{s:02d}]**"
+        text_parts.append(f"{timestamp} {text}")
 
     full_text = "\n".join(text_parts)
     return title, [Document(page_content=full_text, metadata={"source": url, "title": title})]
@@ -315,14 +330,18 @@ async def ingest_youtube(
         )
         print("DEBUG: YouTube Embeddings stored.")
 
-        from services.background_service import process_graph_and_podcast
-        background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
-        print(f"DEBUG: Background pipeline queued for YouTube doc_id={doc_id}")
+        # BYPASS NEO4J/KNOWLEDGE GRAPH EXTRACTION FOR YOUTUBE VIDEOS TO SAVE TOKENS
+        # from services.background_service import process_graph_and_podcast
+        # background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
+        # print(f"DEBUG: Background pipeline queued for YouTube doc_id={doc_id}")
+        print(f"DEBUG: Skipping Neo4j Background pipeline for YouTube doc_id={doc_id}")
 
         return {"status": "success", "chunks": len(chunks), "title": title}
 
     except ValueError as val_exc:
+        # 400 Bad Request exception specifically requested for transcript failures
         raise HTTPException(status_code=400, detail=str(val_exc))
     except Exception as exc:
         print(f"ERROR [ingest_youtube]: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to ingest YouTube video.")
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Failed to ingest YouTube video: {str(exc)}")

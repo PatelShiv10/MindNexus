@@ -61,9 +61,15 @@ async def run_rag_chat(query: str, chat_history: list[dict], doc_ids: list[str])
         )
 
         qa_system_prompt = (
-            "Answer the question based on the following context if it is relevant. "
-            "If the context does not contain the answer, or if the user is asking a general question, "
-            "use your own extensive general knowledge to provide a helpful and accurate response.\n\n"
+            "You are MindNexus, an advanced AI learning assistant. You are currently operating in Direct Answer mode. "
+            "You will be provided with retrieved context from a YouTube video transcript.\n\n"
+            "STRICT RULES FOR TRANSCRIPTS:\n"
+            "1. YouTube auto-captions lack punctuation and contain oral filler words. You must read the surrounding "
+            "context carefully to infer the correct grammatical structure and speaker's true intent before answering.\n"
+            "2. Be aware of common speech patterns (e.g., 'right no errors' generally means 'correct, with zero errors', "
+            "not 'incorrect, there are errors').\n"
+            "3. Answer the user's question directly, comprehensively, and accurately based ONLY on the provided context.\n"
+            "4. Always cite the relevant timestamps (e.g., [01:40]) to show exactly where you pulled the information from.\n\n"
             "Context:\n{context}"
         )
         qa_prompt = ChatPromptTemplate.from_messages(

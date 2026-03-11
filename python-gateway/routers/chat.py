@@ -32,9 +32,15 @@ def _session_to_dict(session: dict) -> dict:
                 session[field] = session[field].replace(tzinfo=timezone.utc)
     if "messages" in session:
         for m in session["messages"]:
+            # Serialize ObjectId _id on individual messages (e.g. from YouTube ingestion)
+            if "_id" in m and isinstance(m["_id"], ObjectId):
+                m["_id"] = str(m["_id"])
             if "timestamp" in m and m.get("timestamp"):
                 if m["timestamp"].tzinfo is None:
                     m["timestamp"] = m["timestamp"].replace(tzinfo=timezone.utc)
+            if "createdAt" in m and m.get("createdAt"):
+                if m["createdAt"].tzinfo is None:
+                    m["createdAt"] = m["createdAt"].replace(tzinfo=timezone.utc)
     return session
 
 

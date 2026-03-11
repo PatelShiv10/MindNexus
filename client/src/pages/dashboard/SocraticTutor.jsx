@@ -102,7 +102,7 @@ function Bubble({ msg }) {
             </div>
           )}
           {isUser ? msg.content : (
-            <div className="prose prose-sm dark:prose-invert max-w-none break-words leading-relaxed text-slate-700 dark:text-slate-200">
+            <div className="[&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_ul]:mb-1.5 [&_ol]:mb-1.5 [&_li]:mb-0.5 [&_strong]:font-semibold [&_code]:text-xs [&_code]:bg-black/10 [&_code]:dark:bg-white/10 [&_code]:px-1 [&_code]:rounded max-w-none break-words leading-relaxed text-slate-700 dark:text-slate-200">
               <ReactMarkdown>
                 {msg.content}
               </ReactMarkdown>
@@ -468,15 +468,26 @@ export default function SocraticTutor() {
 
     setYtLoading(true);
     try {
-      await axios.post(`${GATEWAY_API}/api/documents/youtube`, { url }, { headers });
+      // 1. Send the ingest request — gateway returns { status, title, session_id }
+      const res = await axios.post(`${GATEWAY_API}/api/documents/youtube`, { url }, { headers });
+      
+      // 2. Cleanup UI + switch to Direct mode for YouTube Q&A
       setYtUrl('');
       setYtOpen(false);
-      // Refetch documents to include the newly ingested youtube transcript
-      axios.get(`${GATEWAY_API}/api/documents`, { headers })
-        .then(r => setDocs(r.data || [])).catch(() => {});
+      setMode('direct');
+
+      // 3. Load the newly created chat session directly by ID from the response
+      const sessionId = res.data?.session_id;
+      if (sessionId) {
+        // Refresh history sidebar then jump straight into the new chat session
+        fetchHistory();
+        loadSession(sessionId);
+      }
+
     } catch (err) {
       console.error(err);
-      alert("Failed to ingest YouTube link");
+      const detail = err.response?.data?.detail || "Failed to ingest YouTube link.";
+      alert(detail);
     } finally {
       setYtLoading(false);
     }

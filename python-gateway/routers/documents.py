@@ -98,61 +98,60 @@ async def ingest_youtube_url(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
-    Receive a YouTube URL, persist a Document record as 'processing',
-    forward the URL to the AI Engine /ingest/youtube endpoint, and then mark as 'ready'.
+    Receive a YouTube URL, embed transcript into ChromaDB (chatbot only),
+    and create a dedicated chat session. Does NOT store in the documents archive.
     """
-    collection = db["documents"]
+    import uuid
+    # Use a ephemeral doc_id — not stored in the documents collection
+    doc_id = str(uuid.uuid4())
 
-    # 1. Create initial DB record with placeholder title
-    doc = {
-        "title": "YouTube Video",
-        "user": ObjectId(current_user["id"]),
-        "fileType": "video/youtube",
-        "size": 0,
-        "status": "processing",
-        "createdAt": datetime.now(timezone.utc),
-        "url": request.url
-    }
-    result = await collection.insert_one(doc)
-    doc_id = str(result.inserted_id)
-
-    # 2. Forward to AI Engine
+    # Forward to AI Engine for embedding
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             ai_response = await client.post(
                 f"{settings.AI_ENGINE_URL}/ingest/youtube",
-                json={
-                    "url": request.url,
-                },
-                params={
-                    "doc_id": doc_id, 
-                    "user_id": current_user["id"]
-                }
+                json={"url": request.url},
+                params={"doc_id": doc_id, "user_id": current_user["id"]}
             )
-            
+
             if ai_response.status_code == 200:
                 ai_data = ai_response.json()
                 title = ai_data.get("title", "YouTube Video")
-                await collection.update_one(
-                    {"_id": result.inserted_id}, {"$set": {"status": "ready", "title": title}}
-                )
-                doc["status"] = "ready"
-                doc["title"] = title
+
+                # Create a dedicated chat session for this video
+                chats_collection = db["chatsessions"]
+                ai_message = {
+                    "_id": ObjectId(),
+                    "role": "assistant",
+                    "content": f'"{title}" has been analyzed successfully! I\'m ready for your questions about this video.',
+                    "sources": [],
+                    "createdAt": datetime.now(timezone.utc)
+                }
+                new_session = {
+                    "user": ObjectId(current_user["id"]),
+                    "title": f"YouTube: {title}",
+                    "messages": [ai_message],
+                    "createdAt": datetime.now(timezone.utc),
+                    "updatedAt": datetime.now(timezone.utc)
+                }
+                session_result = await chats_collection.insert_one(new_session)
+
+                return {
+                    "status": "success",
+                    "title": title,
+                    "session_id": str(session_result.inserted_id)
+                }
+
             else:
-                await collection.update_one(
-                    {"_id": result.inserted_id}, {"$set": {"status": "error"}}
-                )
-                doc["status"] = "error"
+                error_text = ai_response.text
+                print(f"🚨 EXACT PYTHON ERROR: {error_text}")
+                raise HTTPException(status_code=400, detail=f"Python AI Engine Failed: {error_text}")
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"AI Engine Ingest YouTube Error: {e}")
-        await collection.update_one(
-            {"_id": result.inserted_id}, {"$set": {"status": "error"}}
-        )
-        doc["status"] = "error"
-
-    doc["_id"] = doc_id
-    doc["user"] = current_user["id"]
-    return doc
+        raise HTTPException(status_code=500, detail=f"Internal Gateway Error: {str(e)}")
 
 
 # ──────────────────────────────────────────────
