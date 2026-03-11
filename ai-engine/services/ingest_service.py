@@ -14,6 +14,9 @@ from core.config import settings
 from core.chroma import chroma_client
 from core.llm import embedding_function, llm_vision
 
+from youtube_transcript_api import YouTubeTranscriptApi
+from pytube import YouTube
+
 
 def _describe_image(b64_data: str, mime: str = "jpeg") -> str:
     """Call Vision LLM to describe a base64-encoded image. Returns description or empty string."""
@@ -166,6 +169,40 @@ def _parse_text(path: str) -> list[Document]:
     return [Document(page_content=content)] if content.strip() else []
 
 
+def _parse_youtube(url: str) -> tuple[str, list[Document]]:
+    """Parse a YouTube URL to extract its title and time-stamped transcript."""
+    try:
+        yt = YouTube(url)
+        video_id = yt.video_id
+        title = yt.title
+    except Exception as e:
+        print(f"WARNING: PyTube failed to fetch metadata: {e}")
+        # fallback if pytube fails (often due to cipher changes)
+        import re
+        match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+        if not match:
+            raise ValueError("Invalid YouTube URL")
+        video_id = match.group(1)
+        title = f"YouTube Video ({video_id})"
+
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+    except Exception as e:
+        raise ValueError(f"Could not retrieve transcript (captions might be disabled): {e}")
+
+    text_parts = []
+    for item in transcript:
+        start_seconds = item["start"]
+        m, s = divmod(int(start_seconds), 60)
+        h, m = divmod(m, 60)
+        timestamp = f"[{h:02d}:{m:02d}:{s:02d}]" if h > 0 else f"[{m:02d}:{s:02d}]"
+        text_parts.append(f"{timestamp} {item['text']}")
+
+    full_text = "\n".join(text_parts)
+    return title, [Document(page_content=full_text, metadata={"source": url, "title": title})]
+
+
+
 async def ingest_document(
     file: UploadFile,
     doc_id: str,
@@ -239,3 +276,53 @@ async def ingest_document(
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+async def ingest_youtube(
+    url: str,
+    doc_id: str,
+    user_id: str,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """
+    Fetch a YouTube transcript, chunk & embed it into ChromaDB,
+    then queue the KG + podcast pipeline.
+    """
+    try:
+        title, documents = _parse_youtube(url)
+
+        total_chars = sum(len(d.page_content) for d in documents)
+        if total_chars == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube transcript appears to be empty.",
+            )
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_documents(documents)
+
+        for chunk in chunks:
+            chunk.metadata["doc_id"] = doc_id
+            chunk.metadata["source"] = url
+            chunk.metadata["title"] = title
+
+        print(f"DEBUG: Embedding {len(chunks)} YouTube chunks…")
+        Chroma.from_documents(
+            documents=chunks,
+            embedding=embedding_function,
+            persist_directory=settings.CHROMA_PATH,
+            collection_name="mindnexus_docs",
+        )
+        print("DEBUG: YouTube Embeddings stored.")
+
+        from services.background_service import process_graph_and_podcast
+        background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
+        print(f"DEBUG: Background pipeline queued for YouTube doc_id={doc_id}")
+
+        return {"status": "success", "chunks": len(chunks), "title": title}
+
+    except ValueError as val_exc:
+        raise HTTPException(status_code=400, detail=str(val_exc))
+    except Exception as exc:
+        print(f"ERROR [ingest_youtube]: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to ingest YouTube video.")

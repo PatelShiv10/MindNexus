@@ -7,7 +7,7 @@ import {
   Bot, User, Send, Plus, X, FileText, ChevronDown,
   Trash2, MessageSquare, BrainCircuit, Loader2,
   Lightbulb, Zap, BookOpen, Clock, PanelLeftClose,
-  PanelLeft, Check
+  PanelLeft, Check, Youtube
 } from 'lucide-react';
 
 import { GATEWAY_API } from '../../config/api';
@@ -302,6 +302,11 @@ export default function SocraticTutor() {
   const [attachedDocs, setAttachedDocs] = useState([]);
   const [pickerOpen, setPickerOpen]     = useState(false);
 
+  // YouTube Ingest State
+  const [ytOpen, setYtOpen]           = useState(false);
+  const [ytUrl, setYtUrl]             = useState('');
+  const [ytLoading, setYtLoading]     = useState(false);
+
   const toggleDoc = (doc) => {
     setAttachedDocs(prev =>
       prev.some(d => d._id === doc._id)
@@ -451,6 +456,32 @@ export default function SocraticTutor() {
     e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
   };
 
+  const handleYouTubeSubmit = async () => {
+    const url = ytUrl.trim();
+    if (!url) return;
+
+    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
+    if (!ytRegex.test(url)) {
+      alert("Please enter a valid YouTube URL.");
+      return;
+    }
+
+    setYtLoading(true);
+    try {
+      await axios.post(`${GATEWAY_API}/api/documents/youtube`, { url }, { headers });
+      setYtUrl('');
+      setYtOpen(false);
+      // Refetch documents to include the newly ingested youtube transcript
+      axios.get(`${GATEWAY_API}/api/documents`, { headers })
+        .then(r => setDocs(r.data || [])).catch(() => {});
+    } catch (err) {
+      console.error(err);
+      alert("Failed to ingest YouTube link");
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
   /* ── render ── */
   return (
     <div className="-m-4 md:-m-6 h-[calc(100vh-4rem)] flex overflow-hidden border-t border-slate-200 dark:border-white/8 bg-white dark:bg-slate-950">
@@ -597,6 +628,57 @@ export default function SocraticTutor() {
                 )}
               </AnimatePresence>
             </div>
+
+            {/* YouTube expander button */}
+            <button
+              type="button"
+              onClick={() => setYtOpen(!ytOpen)}
+              className={clsx(
+                'w-8 h-8 shrink-0 rounded-xl flex items-center justify-center transition-all duration-200',
+                ytOpen
+                  ? 'bg-red-500/15 text-red-500 border border-red-500/30'
+                  : 'bg-white dark:bg-white/5 text-slate-400 border border-slate-300 dark:border-white/10 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/5'
+              )}
+              title="Add YouTube Link"
+            >
+              <Youtube className="w-4 h-4" />
+            </button>
+
+            <AnimatePresence>
+              {ytOpen && (
+                <motion.div
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 170, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  className="flex items-center shrink-0 overflow-hidden"
+                >
+                  <div className="flex gap-1 items-center w-[160px] mx-1">
+                    <input
+                      type="text"
+                      className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-red-500/50 text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500"
+                      placeholder="Paste YouTube URL..."
+                      value={ytUrl}
+                      onChange={e => setYtUrl(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleYouTubeSubmit();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={ytLoading}
+                      onClick={handleYouTubeSubmit}
+                      className="w-7 h-7 shrink-0 rounded-lg bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 disabled:opacity-50 transition-colors"
+                      title="Submit YouTube link"
+                    >
+                      {ytLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3 relative -translate-x-px" />}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* textarea */}
             <textarea

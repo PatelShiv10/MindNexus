@@ -83,6 +83,79 @@ async def upload_document(
 
 
 # ──────────────────────────────────────────────
+# POST /api/documents/youtube
+# ──────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class YouTubeIngestRequest(BaseModel):
+    url: str
+
+@router.post("/youtube", status_code=status.HTTP_201_CREATED)
+async def ingest_youtube_url(
+    request: YouTubeIngestRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Receive a YouTube URL, persist a Document record as 'processing',
+    forward the URL to the AI Engine /ingest/youtube endpoint, and then mark as 'ready'.
+    """
+    collection = db["documents"]
+
+    # 1. Create initial DB record with placeholder title
+    doc = {
+        "title": "YouTube Video",
+        "user": ObjectId(current_user["id"]),
+        "fileType": "video/youtube",
+        "size": 0,
+        "status": "processing",
+        "createdAt": datetime.now(timezone.utc),
+        "url": request.url
+    }
+    result = await collection.insert_one(doc)
+    doc_id = str(result.inserted_id)
+
+    # 2. Forward to AI Engine
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            ai_response = await client.post(
+                f"{settings.AI_ENGINE_URL}/ingest/youtube",
+                json={
+                    "url": request.url,
+                },
+                params={
+                    "doc_id": doc_id, 
+                    "user_id": current_user["id"]
+                }
+            )
+            
+            if ai_response.status_code == 200:
+                ai_data = ai_response.json()
+                title = ai_data.get("title", "YouTube Video")
+                await collection.update_one(
+                    {"_id": result.inserted_id}, {"$set": {"status": "ready", "title": title}}
+                )
+                doc["status"] = "ready"
+                doc["title"] = title
+            else:
+                await collection.update_one(
+                    {"_id": result.inserted_id}, {"$set": {"status": "error"}}
+                )
+                doc["status"] = "error"
+    except Exception as e:
+        print(f"AI Engine Ingest YouTube Error: {e}")
+        await collection.update_one(
+            {"_id": result.inserted_id}, {"$set": {"status": "error"}}
+        )
+        doc["status"] = "error"
+
+    doc["_id"] = doc_id
+    doc["user"] = current_user["id"]
+    return doc
+
+
+# ──────────────────────────────────────────────
 # GET /api/documents/
 # ──────────────────────────────────────────────
 
