@@ -55,27 +55,31 @@ def _parse_pdf(path: str) -> list[Document]:
         page = pdf[page_num]
 
         # --- Text extraction ---
-        text = page.get_textpage().get_text_range().strip()
-        if text:
-            docs.append(Document(page_content=text, metadata={"page": page_num + 1}))
+        page_text = page.get_textpage().get_text_range().strip()
 
         # --- Image extraction (render page at 150 DPI → base64) ---
         try:
-            bitmap = page.render(scale=150 / 72)
-            pil_img = bitmap.to_pil()
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode()
-            # Only call vision if the page is probably image-heavy (little text)
-            if len(text) < 200:
-                desc = _describe_image(b64, "jpeg")
-                if desc:
-                    docs.append(Document(
-                        page_content=f"[Image Description: {desc}]",
-                        metadata={"page": page_num + 1, "type": "image"},
-                    ))
+            # We check for significant visual elements. For PDFs, rendering the whole
+            # page and letting the vision model decide is the most robust approach.
+            # To save tokens, we might only do this if text is sparse, or just do it
+            # if images are found. Here we'll do it if text is < 200 chars (heuristic
+            # for "this is primarily a diagram/slide").
+            if len(page_text) < 200:
+                bitmap = page.render(scale=150 / 72)
+                pil_img = bitmap.to_pil()
+                buf = io.BytesIO()
+                pil_img.save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                
+                vision_description = _describe_image(b64, "jpeg")
+                if vision_description:
+                    page_text += f"\n\n[Visual Element Description: {vision_description}]"
         except Exception as e:
             print(f"WARNING: PDF image render failed (page {page_num + 1}): {e}")
+
+        page_text = page_text.strip()
+        if page_text:
+            docs.append(Document(page_content=page_text, metadata={"page": page_num + 1}))
 
     pdf.close()
     return docs

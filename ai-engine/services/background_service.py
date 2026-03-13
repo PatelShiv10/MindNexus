@@ -4,7 +4,7 @@ from langchain_experimental.graph_transformers import LLMGraphTransformer
 
 from core.chroma import collection
 from core.neo4j import graph
-from core.llm import llm
+from core.llm import llm_graph
 from core.config import settings
 from services.podcast_service import generate_script, synthesize_audio
 
@@ -19,29 +19,60 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
         print("DEBUG [BG]: Neo4j not connected — skipping graph extraction.")
         return
 
-    try:
-        print(f"DEBUG [BG]: Starting graph extraction for {doc_id}…")
-        transformer = LLMGraphTransformer(
-            llm=llm,
-            allowed_nodes=ALLOWED_NODES,
-            allowed_relationships=ALLOWED_RELATIONSHIPS,
-            strict_mode=True,
-        )
-        graph_docs = transformer.convert_to_graph_documents(chunks)
+    print(f"DEBUG [BG]: Starting graph extraction for {doc_id} ({len(chunks)} chunks)…")
 
-        for gd in graph_docs:
-            for node in gd.nodes:
-                node.properties["doc_id"] = doc_id
-                node.properties["userId"] = user_id
-            for rel in gd.relationships:
-                rel.properties["doc_id"] = doc_id
-                rel.properties["userId"] = user_id
+    transformer = LLMGraphTransformer(
+        llm=llm_graph,
+        allowed_nodes=ALLOWED_NODES,
+        allowed_relationships=ALLOWED_RELATIONSHIPS,
+        strict_mode=False,
+    )
 
-        if graph_docs:
-            graph.add_graph_documents(graph_docs)
-            print(f"DEBUG [BG]: Graph stored — {len(graph_docs)} document(s).")
-    except Exception as e:
-        print(f"ERROR [BG]: Graph extraction failed for {doc_id}: {e}")
+    stored = 0
+    failed = 0
+
+    for i, chunk in enumerate(chunks):
+        try:
+            graph_docs = transformer.convert_to_graph_documents([chunk])
+
+            for gd in graph_docs:
+                # Stamp every node with doc_id + userId
+                node_ids = {node.id for node in gd.nodes}
+                for node in gd.nodes:
+                    node.properties["doc_id"] = doc_id
+                    node.properties["userId"] = user_id
+
+                # Sanitize relationships: drop any that reference an undeclared node ID.
+                # This prevents Groq's tool_use_failed error where the LLM creates a
+                # relationship to a node it never declared in the nodes array.
+                valid_rels = []
+                for rel in gd.relationships:
+                    src_id = rel.source.id
+                    tgt_id = rel.target.id
+                    if src_id not in node_ids or tgt_id not in node_ids:
+                        print(
+                            f"DEBUG [BG]: Dropping orphan rel [{src_id}]→[{tgt_id}] "
+                            f"(chunk {i+1}) — node not declared."
+                        )
+                        continue
+                    rel.properties["doc_id"] = doc_id
+                    rel.properties["userId"] = user_id
+                    valid_rels.append(rel)
+                gd.relationships = valid_rels
+
+            if graph_docs:
+                graph.add_graph_documents(graph_docs)
+                stored += 1
+
+        except Exception as e:
+            failed += 1
+            print(f"WARN [BG]: Chunk {i+1}/{len(chunks)} failed for {doc_id}: {e}")
+            continue  # Don't abort — keep processing remaining chunks
+
+    print(
+        f"DEBUG [BG]: Graph extraction complete for {doc_id} — "
+        f"{stored} chunks stored, {failed} chunks failed."
+    )
 
 
 async def generate_podcast_background(doc_id: str) -> None:
