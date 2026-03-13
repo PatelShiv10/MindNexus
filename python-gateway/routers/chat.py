@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     chat_history: list[dict] = []
     doc_ids: list[str] = []
     sessionId: Optional[str] = None
+    image: Optional[str] = None  # base64-encoded image from the frontend
 
 
 def _session_to_dict(session: dict) -> dict:
@@ -67,9 +68,10 @@ async def chat_with_cortex(
             ai_response = await client.post(
                 f"{settings.AI_ENGINE_URL}/chat",
                 json={
-                    "query": combined_query, 
+                    "query": combined_query,
                     "chat_history": body.chat_history,
-                    "doc_ids": body.doc_ids
+                    "doc_ids": body.doc_ids,
+                    "image": body.image,   # forward base64 image to AI engine
                 },
             )
             ai_response.raise_for_status()
@@ -97,7 +99,13 @@ async def chat_with_cortex(
                 "$push": {
                     "messages": {
                         "$each": [
-                            {"role": "user", "content": body.query, "sources": [], "timestamp": now},
+                            {
+                                "role": "user",
+                                "content": body.query,
+                                "image": body.image,   # persist image in MongoDB
+                                "sources": [],
+                                "timestamp": now,
+                            },
                             {"role": "ai", "content": answer, "sources": sources, "timestamp": now},
                         ]
                     }
@@ -123,7 +131,13 @@ async def chat_with_cortex(
             "user": ObjectId(current_user["id"]),
             "title": title,
             "messages": [
-                {"role": "user", "content": body.query, "sources": [], "timestamp": now},
+                {
+                    "role": "user",
+                    "content": body.query,
+                    "image": body.image,   # persist image for new sessions too
+                    "sources": [],
+                    "timestamp": now,
+                },
                 {"role": "ai", "content": answer, "sources": sources, "timestamp": now},
             ],
             "createdAt": now,

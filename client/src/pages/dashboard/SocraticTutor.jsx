@@ -7,7 +7,7 @@ import {
   Bot, User, Send, Plus, X, FileText, ChevronDown,
   Trash2, MessageSquare, BrainCircuit, Loader2,
   Lightbulb, Zap, BookOpen, Clock, PanelLeftClose,
-  PanelLeft, Check, Youtube
+  PanelLeft, Check, Youtube, ImageIcon
 } from 'lucide-react';
 
 import { GATEWAY_API } from '../../config/api';
@@ -101,7 +101,18 @@ function Bubble({ msg }) {
               ))}
             </div>
           )}
-          {isUser ? msg.content : (
+          {isUser ? (
+            <>
+              {msg.image && (
+                <img
+                  src={msg.image}
+                  alt="Shared"
+                  className="max-w-xs w-full rounded-xl mb-3 object-cover shadow-sm border border-white/10"
+                />
+              )}
+              {msg.content}
+            </>
+          ) : (
             <div className="[&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_ul]:mb-1.5 [&_ol]:mb-1.5 [&_li]:mb-0.5 [&_strong]:font-semibold [&_code]:text-xs [&_code]:bg-black/10 [&_code]:dark:bg-white/10 [&_code]:px-1 [&_code]:rounded max-w-none break-words leading-relaxed text-slate-700 dark:text-slate-200">
               <ReactMarkdown>
                 {msg.content}
@@ -307,6 +318,10 @@ export default function SocraticTutor() {
   const [ytUrl, setYtUrl]             = useState('');
   const [ytLoading, setYtLoading]     = useState(false);
 
+  // Image Upload State
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview]   = useState(null);
+
   const toggleDoc = (doc) => {
     setAttachedDocs(prev =>
       prev.some(d => d._id === doc._id)
@@ -317,9 +332,10 @@ export default function SocraticTutor() {
   const [sessions, setSessions]       = useState([]);
   const [histLoading, setHistLoading] = useState(false);
 
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
-  const pickerRef = useRef(null);
+  const bottomRef    = useRef(null);
+  const inputRef     = useRef(null);
+  const pickerRef    = useRef(null);
+  const imageInputRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping]);
 
@@ -350,6 +366,7 @@ export default function SocraticTutor() {
             setMessages(r.data.messages.map((m, i) => ({
               id: m._id || i, role: m.role, content: m.content,
               sources: m.sources || [], citation: null,
+              image: m.image || null,
             })));
           }).catch(console.error);
       }
@@ -372,6 +389,7 @@ export default function SocraticTutor() {
       setMessages(r.data.messages.map((m, i) => ({
         id: m._id || i, role: m.role, content: m.content,
         sources: m.sources || [], citation: null,
+        image: m.image || null,
       })));
     } catch (e) { console.error(e); }
   };
@@ -400,6 +418,7 @@ export default function SocraticTutor() {
     const userMsg = {
       id: Date.now(), role: 'user', content: text,
       attachedDocs: [...attachedDocs], sources: [], citation: null,
+      image: imagePreview || null,
     };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -427,6 +446,7 @@ export default function SocraticTutor() {
         chat_history: historyPayload,
         doc_ids: attachedDocs.map(d => d._id),
         sessionId,
+        ...(imagePreview ? { image: imagePreview } : {}),
       }, { headers });
 
       if (!sessionId && res.data.sessionId) {
@@ -439,6 +459,9 @@ export default function SocraticTutor() {
         sources: res.data.sources || [],
         citation: res.data.citation || null,
       }]);
+      // Clear image after successful send
+      setSelectedImage(null);
+      setImagePreview(null);
     } catch {
       setMessages(prev => [...prev, {
         id: Date.now() + 1, role: 'ai',
@@ -454,6 +477,21 @@ export default function SocraticTutor() {
     setInput(e.target.value);
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedImage(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = ''; // reset so same file can be re-selected
+  };
+
+  const clearImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
   };
 
   const handleYouTubeSubmit = async () => {
@@ -608,6 +646,30 @@ export default function SocraticTutor() {
 
         {/* input bar */}
         <div className="shrink-0 px-4 sm:px-8 pb-5 pt-3 bg-white/60 dark:bg-transparent">
+
+          {/* Image thumbnail preview */}
+          {imagePreview && (
+            <div className="flex items-center gap-3 mb-2 px-1">
+              <div className="relative inline-flex shrink-0">
+                <img
+                  src={imagePreview}
+                  alt="Selected"
+                  className="h-14 w-14 object-cover rounded-xl border border-slate-200 dark:border-white/10 shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={clearImage}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <span className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[200px]">
+                {selectedImage?.name}
+              </span>
+            </div>
+          )}
+
           <form
             onSubmit={send}
             className="relative flex items-center gap-2 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-white/10 px-3 py-2.5 focus-within:border-neon-purple/40 transition-colors shadow-sm"
@@ -639,6 +701,30 @@ export default function SocraticTutor() {
                 )}
               </AnimatePresence>
             </div>
+
+            {/* Hidden image file input */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+
+            {/* Image upload button */}
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className={clsx(
+                'w-8 h-8 shrink-0 rounded-xl flex items-center justify-center transition-all duration-200',
+                imagePreview
+                  ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                  : 'bg-white dark:bg-white/5 text-slate-400 border border-slate-300 dark:border-white/10 hover:text-emerald-500 hover:border-emerald-500/30 hover:bg-emerald-500/5'
+              )}
+              title="Upload Image"
+            >
+              <ImageIcon className="w-4 h-4" />
+            </button>
 
             {/* YouTube expander button */}
             <button

@@ -24,7 +24,7 @@ llm_podcast = ChatGroq(
 
 llm_vision = ChatGroq(
     api_key=settings.GROQ_API_KEY,
-    model="llama-3.2-90b-vision-preview",
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
     temperature=0.3,
 )
 
