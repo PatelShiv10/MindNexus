@@ -18,6 +18,7 @@ export default function NexusHome() {
   useEffect(() => {
     if (location.state?.targetDocId) {
       setSelectedDocId(location.state.targetDocId);
+      setFocusMode('graph'); // Auto-focus the graph view
       // Clear history state so refresh doesn't stick
       window.history.replaceState({}, document.title);
     }

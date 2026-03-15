@@ -81,6 +81,43 @@ async def upload_document(
     doc["user"] = current_user["id"]
     return doc
 
+# ──────────────────────────────────────────────
+# POST /api/documents/reindex/{doc_id}
+# ──────────────────────────────────────────────
+@router.post("/reindex/{doc_id}", status_code=status.HTTP_200_OK)
+async def reindex_document_metadata(
+    doc_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    collection = db["documents"]
+    doc = await collection.find_one({"_id": ObjectId(doc_id), "user": ObjectId(current_user["id"])})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    await collection.update_one({"_id": ObjectId(doc_id)}, {"$set": {"status": "processing"}})
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            ai_response = await client.post(
+                f"{settings.AI_ENGINE_URL}/reindex/{doc_id}",
+                data={"user_id": current_user["id"]},
+            )
+            if ai_response.status_code == 200:
+                await collection.update_one(
+                    {"_id": ObjectId(doc_id)}, {"$set": {"status": "ready"}}
+                )
+                return {"message": "Re-indexing started successfully", "doc_id": doc_id}
+            else:
+                await collection.update_one(
+                    {"_id": ObjectId(doc_id)}, {"$set": {"status": "error"}}
+                )
+                raise HTTPException(status_code=400, detail="AI Engine Failed to Re-Index")
+    except Exception as e:
+        await collection.update_one(
+            {"_id": ObjectId(doc_id)}, {"$set": {"status": "error"}}
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ──────────────────────────────────────────────
 # POST /api/documents/youtube

@@ -44,8 +44,6 @@ const FileIcon = ({ type }) => {
     case 'DOC': return <FileText className="w-8 h-8 text-blue-500" />;
     case 'PPTX':
     case 'PPT': return <FileText className="w-8 h-8 text-orange-500" />;
-    case 'MD':
-    case 'TXT': return <FileCode className="w-8 h-8 text-blue-400" />;
     default: return <File className="w-8 h-8 text-slate-400" />;
   }
 };
@@ -111,6 +109,27 @@ export default function Archives() {
     } catch (err) {
       console.error("Error deleting document:", err);
       alert("Failed to delete document.");
+    }
+  };
+
+  const handleReindex = async (doc) => {
+    try {
+      // Optimistically update status to 'processing'
+      setDocuments(prev => prev.map(d => 
+        d._id === doc._id ? { ...d, status: 'processing' } : d
+      ));
+      
+      const token = localStorage.getItem('token');
+      await axios.post(`${GATEWAY_API}/api/documents/reindex/${doc._id}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Refresh list to pull actual status if finished early
+      fetchDocuments();
+    } catch (err) {
+      console.error("Error re-indexing document:", err);
+      alert("Failed to re-index document.");
+      fetchDocuments(); // revert optimistic update on fail
     }
   };
 
@@ -183,8 +202,6 @@ export default function Archives() {
               <option value="PDF">PDF</option>
               <option value="DOCX">DOCX</option>
               <option value="PPTX">PPTX</option>
-              <option value="TXT">TXT</option>
-              <option value="MD">MD</option>
             </select>
             <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
@@ -325,6 +342,7 @@ export default function Archives() {
                                     <Menu.Item>
                                       {({ active }) => (
                                         <button
+                                          onClick={() => handleReindex(item)}
                                           className={clsx(
                                             active ? 'bg-slate-100 dark:bg-white/5' : '',
                                             'w-full text-left px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer'
@@ -402,6 +420,7 @@ export default function Archives() {
                                   <Menu.Item>
                                     {({ active }) => (
                                       <button
+                                        onClick={() => handleReindex(item)}
                                         className={clsx(
                                           active ? 'bg-slate-100 dark:bg-white/5' : '',
                                           'w-full text-left px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer'

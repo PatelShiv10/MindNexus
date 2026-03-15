@@ -349,3 +349,52 @@ async def ingest_youtube(
         print(f"ERROR [ingest_youtube]: {exc}")
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Failed to ingest YouTube video: {str(exc)}")
+
+async def reindex_document(
+    doc_id: str,
+    user_id: str,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """
+    Re-run the knowledge graph and podcast pipeline for an existing document
+    by retrieving its text chunks directly from ChromaDB.
+    """
+    try:
+        from core.chroma import collection
+        from langchain_core.documents import Document
+        from services.background_service import process_graph_and_podcast
+        
+        results = collection.get(where={"doc_id": doc_id}, include=["documents", "metadatas"])
+        if not results or not results.get("documents"):
+            raise HTTPException(status_code=404, detail="No embedded text found for this document")
+
+        chunks = []
+        for doc_text, meta in zip(results["documents"], results["metadatas"]):
+            chunks.append(Document(page_content=doc_text, metadata=meta))
+
+        # Clear old Neo4j graph nodes
+        from core.neo4j import graph
+        if graph:
+            graph.query("MATCH (n {doc_id: $doc_id}) DETACH DELETE n", {"doc_id": doc_id})
+            print(f"DEBUG [reindex]: Wiped old graph nodes for {doc_id}")
+            
+        # Clear old audio cache
+        import os
+        from core.config import settings
+        for ext in ("mp3", "json"):
+            path = os.path.join(settings.AUDIO_DIR, f"podcast_{doc_id}.{ext}")
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"DEBUG [reindex]: Wiped old audio {path}")
+                
+        # Re-queue pipeline
+        print(f"DEBUG [reindex]: Queued background pipeline for {doc_id}")
+        background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
+        
+        return {"status": "success", "message": "Re-indexing started"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"ERROR [reindex]: {exc}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc))

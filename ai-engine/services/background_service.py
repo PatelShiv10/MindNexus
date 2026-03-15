@@ -19,6 +19,14 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
         print("DEBUG [BG]: Neo4j not connected — skipping graph extraction.")
         return
 
+    # HARD LIMIT: Groq free tier has 100,000 Tokens Per Day limit.
+    # A 71 chunk document consumes ~71,000 to 100,000 tokens instantly.
+    # Truncate to the first 20 chunks (~20,000 tokens) to ensure the API doesn't lock out.
+    MAX_GRAPH_CHUNKS = 20
+    if len(chunks) > MAX_GRAPH_CHUNKS:
+        print(f"DEBUG [BG]: Truncating graph extraction from {len(chunks)} to {MAX_GRAPH_CHUNKS} chunks to prevent TPD limit.")
+        chunks = chunks[:MAX_GRAPH_CHUNKS]
+
     print(f"DEBUG [BG]: Starting graph extraction for {doc_id} ({len(chunks)} chunks)…")
 
     transformer = LLMGraphTransformer(
@@ -93,6 +101,11 @@ async def generate_podcast_background(doc_id: str) -> None:
             print(f"DEBUG [BG]: No text found for {doc_id} — skipping podcast.")
             return
         full_text = "\n".join(documents)
+        # Cap the text length to prevent 413 Payload Too Large / TPM token limit errors
+        MAX_PODCAST_CHARS = 12000
+        if len(full_text) > MAX_PODCAST_CHARS:
+            print(f"DEBUG [BG]: Truncating podcast input from {len(full_text)} to {MAX_PODCAST_CHARS} chars to save tokens.")
+            full_text = full_text[:MAX_PODCAST_CHARS]
 
         node_ids: list[str] = []
         if graph:

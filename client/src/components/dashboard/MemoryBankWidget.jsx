@@ -147,7 +147,7 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
             <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
               {isDragActive ? "Drop to Ingest" : "Drag Neural Data"}
             </p>
-            <p className="text-xs text-slate-400">PDF, DOCX, PPTX, TXT, MD supported</p>
+            <p className="text-xs text-slate-400">PDF, DOCX, PPTX supported</p>
           </>
         )}
       </div>

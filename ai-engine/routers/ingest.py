@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, Body
-from services.ingest_service import ingest_document, ingest_youtube
+from services.ingest_service import ingest_document, ingest_youtube, reindex_document
 
 router = APIRouter(tags=["ingest"])
 
@@ -45,4 +45,10 @@ async def ingest_youtube_endpoint(
         # The service handles its own exceptions and raises HTTPException, so this provides a fallback
         raise
 
-
+@router.post("/reindex/{doc_id}")
+async def reindex_endpoint(
+    doc_id: str,
+    user_id: str = Form(...),
+    background_tasks: BackgroundTasks = None
+):
+    return await reindex_document(doc_id, user_id, background_tasks)
