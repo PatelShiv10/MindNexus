@@ -19,15 +19,6 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (token) {
-      // Ideally verify token with backend here, for now just decode or assume valid if present
-      // For this MVP, we'll just set a dummy user object if token exists, 
-      // or rely on the login response to set the user.
-      // A better approach is to have a /me endpoint.
-      // We will persist user data in localStorage for simplicity in this step if needed,
-      // or just rely on the fact that we have a token.
-      
-      // Let's try to decode or just set a flag. 
-      // Actually, let's store user info in localStorage too for this simple implementation.
       const storedUser = localStorage.getItem('user');
       if (storedUser) {
         setUser(JSON.parse(storedUser));
@@ -37,9 +28,32 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const login = async (email, password) => {
-    const response = await axios.post('/api/auth/login', { email, password });
+    try {
+      const response = await axios.post('/api/auth/login', { email, password });
+      const { token, ...userData } = response.data;
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      setToken(token);
+      setUser(userData);
+      return response.data;
+    } catch (err) {
+      // If account exists but email not verified, surface the email so the UI can redirect
+      if (err.response?.data?.message === 'EMAIL_NOT_VERIFIED') {
+        throw { notVerified: true, email: err.response.data.email };
+      }
+      throw new Error(err.response?.data?.message || 'Login failed');
+    }
+  };
+
+  // register — no longer logs in. Returns the email so caller can redirect to /verify-otp
+  const register = async (name, email, password) => {
+    const response = await axios.post('/api/auth/register', { name, email, password });
+    return response.data; // { message, email }
+  };
+
+  const verifyOtp = async (email, otp) => {
+    const response = await axios.post('/api/auth/verify-otp', { email, otp });
     const { token, ...userData } = response.data;
-    
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
     setToken(token);
@@ -47,14 +61,8 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
-  const register = async (name, email, password) => {
-    const response = await axios.post('/api/auth/register', { name, email, password });
-    const { token, ...userData } = response.data;
-    
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setToken(token);
-    setUser(userData);
+  const resendOtp = async (email) => {
+    const response = await axios.post('/api/auth/resend-otp', { email });
     return response.data;
   };
 
@@ -66,7 +74,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOtp, resendOtp, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );

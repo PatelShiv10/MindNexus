@@ -10,6 +10,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import LandingPage from './pages/public/LandingPage';
 import Login from './pages/public/Login';
 import Register from './pages/public/Register';
+import VerifyOtp from './pages/public/VerifyOtp';
 
 // Dashboard Pages
 import NexusHome from './pages/dashboard/NexusHome';
@@ -48,6 +49,7 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/verify-otp" element={<VerifyOtp />} />
             
             {/* Layout for other public pages if any */}
             <Route element={<PublicLayout />}>

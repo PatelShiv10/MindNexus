@@ -22,7 +22,12 @@ export default function Login() {
       await login(email, password);
       navigate('/nexus');
     } catch (err) {
-      setError('Authentication Failed: Invalid credentials');
+      if (err.notVerified) {
+        // Email not yet verified — send them to OTP page
+        navigate('/verify-otp', { state: { email: err.email } });
+      } else {
+        setError(err.message || 'Authentication Failed: Invalid credentials');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -20,10 +20,10 @@ export default function Register() {
     setError('');
     
     try {
-      await register(name, email, password);
-      navigate('/nexus');
+      const data = await register(name, email, password);
+      navigate('/verify-otp', { state: { email: data.email } });
     } catch (err) {
-      setError('Initialization Failed: ' + err.message);
+      setError('Initialization Failed: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsLoading(false);
     }
