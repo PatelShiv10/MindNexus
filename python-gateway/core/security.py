@@ -50,7 +50,7 @@ async def get_current_user(
 
     user = await db["users"].find_one(
         {"_id": ObjectId(user_id)},
-        {"password": 0},  # exclude password — same as .select('-password')
+        {"password": 0},
     )
 
     if not user:
@@ -60,6 +60,5 @@ async def get_current_user(
             detail="Not authorized, user not found",
         )
 
-    # Normalise ObjectId → string so it's JSON-serialisable
     user["id"] = str(user["_id"])
     return user
