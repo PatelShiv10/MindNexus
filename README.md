@@ -62,7 +62,7 @@ MindNexus is composed of **four services** that work together:
 |---|---|---|
 | `client` | React frontend | 5173 |
 | `server` | Auth (signup/login/JWT) via Node.js + MongoDB | 3000 |
-| `python-gateway` | Proxy for documents, chat, and graph (JWT-protected) | 8080 |
+| `python-gateway` | Proxy for documents, chat, and graph (JWT-protected) | 8081 |
 | `ai-engine` | RAG pipeline, graph extraction, podcast generation, S3 | 8000 |
 
 > **Databases** are managed via Docker Compose: MongoDB (27017) and Neo4j (7474/7687).
