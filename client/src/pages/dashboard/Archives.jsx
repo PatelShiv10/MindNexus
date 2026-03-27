@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, Filter, Grid, List, FileText, MoreVertical, 
-  Trash2, Activity, Database, RefreshCw, Eye, File, FileCode, Loader2
+  Trash2, Activity, Database, RefreshCw, Eye, File, FileCode, Loader2, Download
 } from 'lucide-react';
 import { Menu, Transition } from '@headlessui/react';
 import GlassCard from '../../components/ui/GlassCard';
@@ -130,6 +130,31 @@ export default function Archives() {
       console.error("Error re-indexing document:", err);
       alert("Failed to re-index document.");
       fetchDocuments(); // revert optimistic update on fail
+    }
+  };
+
+  const handleDownload = async (doc) => {
+    try {
+      // Optional: Give user feedback if it takes longer natively
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${GATEWAY_API}/api/documents/${doc._id}/download`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data && response.data.url) {
+        // Programmatically trigger download
+        const a = document.createElement('a');
+        a.href = response.data.url;
+        a.download = doc.title || 'download';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (err) {
+      console.error("Error downloading document:", err);
+      const errorMessage = err.response?.data?.detail || "Failed to download document.";
+      alert(errorMessage);
     }
   };
 
@@ -352,6 +377,19 @@ export default function Archives() {
                                         </button>
                                       )}
                                     </Menu.Item>
+                                    <Menu.Item>
+                                      {({ active }) => (
+                                        <button
+                                          onClick={() => handleDownload(item)}
+                                          className={clsx(
+                                            active ? 'bg-slate-100 dark:bg-white/5' : '',
+                                            'w-full text-left px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer'
+                                          )}
+                                        >
+                                          <Download className="w-4 h-4" /> Download
+                                        </button>
+                                      )}
+                                    </Menu.Item>
                                     <div className="h-px bg-slate-200 dark:bg-white/10 my-1" />
                                     <Menu.Item>
                                       {({ active }) => (
@@ -427,6 +465,19 @@ export default function Archives() {
                                         )}
                                       >
                                         <RefreshCw className="w-4 h-4" /> Re-Index
+                                      </button>
+                                    )}
+                                  </Menu.Item>
+                                  <Menu.Item>
+                                    {({ active }) => (
+                                      <button
+                                        onClick={() => handleDownload(item)}
+                                        className={clsx(
+                                          active ? 'bg-slate-100 dark:bg-white/5' : '',
+                                          'w-full text-left px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer'
+                                        )}
+                                      >
+                                        <Download className="w-4 h-4" /> Download
                                       </button>
                                     )}
                                   </Menu.Item>

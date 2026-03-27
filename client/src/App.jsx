@@ -11,10 +11,12 @@ import LandingPage from './pages/public/LandingPage';
 import Login from './pages/public/Login';
 import Register from './pages/public/Register';
 import VerifyOtp from './pages/public/VerifyOtp';
+import ForgotPassword from './pages/public/ForgotPassword';
 
 // Dashboard Pages
 import NexusHome from './pages/dashboard/NexusHome';
-import Settings from './pages/dashboard/Settings';
+import SettingsProfile from './pages/dashboard/SettingsProfile';
+import SettingsPrivacy from './pages/dashboard/SettingsPrivacy';
 import Archives from './pages/dashboard/Archives';
 import Training from './pages/dashboard/Training';
 import ExamSession from './pages/dashboard/ExamSession';
@@ -50,6 +52,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/verify-otp" element={<VerifyOtp />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             
             {/* Layout for other public pages if any */}
             <Route element={<PublicLayout />}>
@@ -66,7 +69,8 @@ function App() {
               }
             >
               <Route index element={<NexusHome />} />
-              {/* <Route path="settings" element={<Settings />} /> */}
+              <Route path="settings/profile" element={<SettingsProfile />} />
+              <Route path="settings/privacy" element={<SettingsPrivacy />} />
               <Route path="archives" element={<Archives />} />
               {/* <Route path="training" element={<Training />} /> */}
               <Route path="exam/:id" element={<ExamSession />} />

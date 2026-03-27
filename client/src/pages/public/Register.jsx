@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Brain, Lock, Mail, User, ArrowRight, Sparkles } from 'lucide-react';
+import { Brain, Lock, Mail, User, ArrowRight, Sparkles, ArrowLeft } from 'lucide-react';
 import NetworkBackground from '../../components/ui/NetworkBackground';
 import ThemeToggle from '../../components/ui/ThemeToggle';
 
@@ -38,11 +38,19 @@ export default function Register() {
         <ThemeToggle />
       </div>
 
+      {/* Back to Home (Absolute) */}
+      <div className="absolute top-6 left-6 z-50">
+        <Link to="/" className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-neon-blue dark:hover:text-neon-blue transition-colors px-4 py-2 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md rounded-full border border-slate-200 dark:border-white/10 shadow-sm group">
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          <span className="text-sm font-medium">Home</span>
+        </Link>
+      </div>
+
       <div className="w-full max-w-[400px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 relative z-10 transition-colors duration-300">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <Brain className="w-8 h-8 text-neon-blue" />
-            <span className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">MindNexus</span>
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <img src="/logo.png" alt="MindNexus Logo" className="h-16 w-auto object-contain" />
+            <span className="text-2xl font-semibold text-slate-800 dark:text-white tracking-tight">MindNexus</span>
           </div>
           
           <h1 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">

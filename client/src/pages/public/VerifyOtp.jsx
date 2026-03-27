@@ -163,9 +163,9 @@ export default function VerifyOtp() {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <Brain className="w-8 h-8 text-neon-blue" />
-            <span className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">MindNexus</span>
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <img src="/logo.png" alt="MindNexus Logo" className="h-16 w-auto object-contain" />
+            <span className="text-2xl font-semibold text-slate-800 dark:text-white tracking-tight">MindNexus</span>
           </div>
           <div className="flex items-center justify-center mb-4">
             <div className="p-3 bg-cyan-50 dark:bg-cyan-900/20 rounded-full">

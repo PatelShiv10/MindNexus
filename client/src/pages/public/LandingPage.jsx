@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { MessageSquare, Network, Headphones, ArrowRight, Activity, Github, Twitter, BrainCircuit } from 'lucide-react';
+import { MessageSquare, Network, Headphones, ArrowRight, Activity, Github, Instagram, BrainCircuit } from 'lucide-react';
 import PublicNavbar from '../../components/public/PublicNavbar';
 import GlassCard from '../../components/ui/GlassCard';
 import NexusButton from '../../components/ui/NexusButton';
@@ -34,6 +34,7 @@ export default function LandingPage() {
             </div>
             
             <h1 className="text-5xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight">
+              <span className="block text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent mb-2 tracking-widest uppercase">MindNexus</span>
               Augment Your <br />
               <span className="bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent">
                 Intellect.
@@ -50,9 +51,6 @@ export default function LandingPage() {
                   Get Started Free <ArrowRight className="w-4 h-4 ml-2" />
                 </NexusButton>
               </Link>
-              <NexusButton variant="ghost" className="!text-base !px-8 !py-3">
-                Explore Demo
-              </NexusButton>
             </div>
 
             {/* Trusted By section removed */}
@@ -152,8 +150,8 @@ export default function LandingPage() {
                 color: "text-emerald-500",
                 bg: "bg-emerald-500/10",
                 border: "hover:border-emerald-500/50",
-                title: "Neural Training",
-                desc: "AI-generated quizzes and exam simulations derived directly from your lecture notes."
+                title: "AI Tutor",
+                desc: "Engage in interactive, Socratic-style tutoring sessions to master complex subjects and clarify concepts."
               },
               {
                 icon: Headphones,
@@ -190,16 +188,19 @@ export default function LandingPage() {
       <footer className="border-t border-slate-200 dark:border-white/10 py-12 px-6 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-gradient-to-tr from-neon-blue to-neon-purple flex items-center justify-center text-white text-xs">
-              M
-            </div>
+            <img src="/logo.png" alt="MindNexus Logo" className="h-10 w-auto object-contain" />
             <span className="font-bold text-slate-700 dark:text-slate-200">MindNexus</span>
-            <span className="text-slate-400 text-sm ml-2">© 2025</span>
+            <span className="text-slate-400 text-sm ml-2">© 2026 MindNexus. All rights reserved.</span>
           </div>
 
           <div className="flex items-center gap-6 text-slate-500 dark:text-slate-400">
             <a href="#" className="hover:text-neon-blue transition-colors"><Github className="w-5 h-5" /></a>
-            <a href="#" className="hover:text-neon-blue transition-colors"><Twitter className="w-5 h-5" /></a>
+            <a href="#" className="hover:text-neon-blue transition-colors"><Instagram className="w-5 h-5" /></a>
+            <a href="#" className="hover:text-neon-blue transition-colors">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+            </a>
           </div>
 
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-medium">

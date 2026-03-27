@@ -358,19 +358,7 @@ export default function SocraticTutor() {
   }, []);
 
   useEffect(() => { 
-    fetchHistory().then(data => {
-      if (data && data.length > 0) {
-        axios.get(`${GATEWAY_API}/api/chat/${data[0]._id}`, { headers })
-          .then(r => {
-            setSessionId(data[0]._id);
-            setMessages(r.data.messages.map((m, i) => ({
-              id: m._id || i, role: m.role, content: m.content,
-              sources: m.sources || [], citation: null,
-              image: m.image || null,
-            })));
-          }).catch(console.error);
-      }
-    }); 
+    fetchHistory();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchHistory]);
 

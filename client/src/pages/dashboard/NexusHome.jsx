@@ -9,6 +9,7 @@ import NeuralChatWidget from '../../components/dashboard/NeuralChatWidget';
 export default function NexusHome() {
   const [focusMode, setFocusMode] = useState('none'); // 'none' | 'files' | 'graph' | 'chat'
   const [selectedDocId, setSelectedDocId] = useState(null);
+  const [selectedDocTitle, setSelectedDocTitle] = useState(null);
   const [chatMessages, setChatMessages] = useState([
     { id: 1, role: 'ai', content: 'Neural interface active. How can I augment your thinking today?' }
   ]);
@@ -32,11 +33,13 @@ export default function NexusHome() {
     }
   };
 
-  const handleFileClick = (docId) => {
+  const handleFileClick = (docId, docTitle) => {
     if (selectedDocId === docId) {
       setSelectedDocId(null); // Deselect
+      setSelectedDocTitle(null);
     } else {
       setSelectedDocId(docId);
+      setSelectedDocTitle(docTitle);
     }
   };
 
@@ -72,6 +75,7 @@ export default function NexusHome() {
         onToggleFocus={() => toggleFocus('graph')}
         isFocused={focusMode === 'graph'}
         selectedDocId={selectedDocId}
+        selectedDocTitle={selectedDocTitle}
       />
     </motion.div>
   );

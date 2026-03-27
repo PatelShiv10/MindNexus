@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Database, Settings, Menu, Activity, X, BrainCircuit } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ThemeToggle from '../components/ui/ThemeToggle';
@@ -9,7 +9,9 @@ import { clsx } from 'clsx';
 export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState('main'); // 'main' or 'settings'
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   // Handle Mobile Resize
@@ -29,8 +31,14 @@ export default function DashboardLayout() {
     { icon: LayoutDashboard, label: 'Nexus',  path: '/nexus' },
     { icon: Database,        label: 'Archives', path: '/nexus/archives' },
     { icon: BrainCircuit,   label: 'AI Tutor', path: '/nexus/tutor' },
-    // { icon: Settings, label: 'Settings', path: '/nexus/settings' },
   ];
+
+  const settingsItems = [
+    { icon: Settings, label: 'Profile', path: '/nexus/settings/profile' },
+    { icon: Activity, label: 'Privacy Policy', path: '/nexus/settings/privacy' }
+  ];
+
+  const currentItems = sidebarMode === 'main' ? navItems : settingsItems;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-nexus-dark bg-grid-pattern text-slate-900 dark:text-slate-100 flex overflow-hidden">
@@ -59,29 +67,29 @@ export default function DashboardLayout() {
           isMobile ? "shadow-2xl" : ""
         )}
       >
-        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200 dark:border-white/10 shrink-0">
+        <div className="h-16 flex items-center justify-between px-3 border-b border-slate-200 dark:border-white/10 shrink-0">
           <AnimatePresence>
             {isSidebarOpen && (
-              <motion.span
+              <motion.img
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="font-bold text-xl bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent whitespace-nowrap"
-              >
-                MindNexus
-              </motion.span>
+                src="/logo1.png"
+                alt="MindNexus Logo"
+                className="h-40 w-auto object-contain -ml-4"
+              />
             )}
           </AnimatePresence>
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-white/5 transition-colors shrink-0"
           >
             {isMobile && isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
 
         <nav className="flex-1 py-6 px-3 space-y-2 overflow-y-auto overflow-x-hidden">
-          {navItems.map((item) => {
+          {currentItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link to={item.path} key={item.path} onClick={() => isMobile && setIsSidebarOpen(false)}>
@@ -116,19 +124,51 @@ export default function DashboardLayout() {
               </Link>
             );
           })}
+
+          {sidebarMode === 'settings' && (
+            <button 
+              onClick={() => {
+                setSidebarMode('main');
+                navigate('/nexus');
+              }}
+              className="flex items-center gap-3 px-3 py-3 w-full rounded-xl transition-all duration-300 group relative overflow-hidden whitespace-nowrap text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/5 mt-4"
+            >
+              <LayoutDashboard className="w-5 h-5 shrink-0" />
+              <AnimatePresence>
+                {isSidebarOpen && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    className="font-medium"
+                  >
+                    Back to Nexus
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-200 dark:border-white/10 shrink-0">
-          <div className={clsx("flex items-center gap-3", !isSidebarOpen && "justify-center")}>
+          <div 
+            className={clsx(
+              "flex items-center gap-3 cursor-pointer p-2 rounded-xl transition-colors", 
+              !isSidebarOpen && "justify-center",
+              sidebarMode === 'settings' ? "bg-slate-200 dark:bg-white/5" : "hover:bg-slate-200 dark:hover:bg-white/5"
+            )}
+            onClick={() => {
+              setSidebarMode('settings');
+              navigate('/nexus/settings/profile');
+            }}
+            title="Account Settings"
+          >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-neon-blue to-neon-purple flex items-center justify-center text-white font-bold text-xs shrink-0">
               {user?.name?.charAt(0) || 'U'}
             </div>
             {isSidebarOpen && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{user?.name}</p>
-                <button onClick={logout} className="text-xs text-slate-500 hover:text-red-400 transition-colors">
-                  Terminate Session
-                </button>
               </div>
             )}
           </div>

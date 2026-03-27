@@ -2,14 +2,14 @@ import { useRef, useEffect, useState } from 'react';
 import axios from 'axios';
 import { GATEWAY_API } from '../../config/api';
 import ForceGraph3D from 'react-force-graph-3d';
-import { Maximize2, Minimize2, RefreshCw, ZoomIn, ZoomOut, Play, Pause, Network, Monitor, Loader2 } from 'lucide-react';
+import { Maximize2, Minimize2, RefreshCw, ZoomIn, ZoomOut, Play, Pause, Network, Monitor, Loader2, Download } from 'lucide-react';
 import GlassCard from '../ui/GlassCard';
 import Toast from '../ui/Toast';
 import { useTheme } from '../../context/ThemeContext';
 import { clsx } from 'clsx';
 import * as THREE from 'three';
 
-export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, selectedDocId }) {
+export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, selectedDocId, selectedDocTitle }) {
   const fgRef = useRef();
   const containerRef = useRef();
   const { theme } = useTheme();
@@ -34,11 +34,14 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    fetchGraphData();
-    // Reset and check for podcast when document changes
     if (selectedDocId) {
+      fetchGraphData();
       resetPodcastState();
       checkForExistingPodcast();
+    } else {
+      setGraphData({ nodes: [], links: [] });
+      graphDataRef.current = { nodes: [], links: [] };
+      resetPodcastState();
     }
   }, [selectedDocId]);
 
@@ -59,12 +62,11 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
   }, [isExpanded]);
 
   const fetchGraphData = async () => {
+    if (!selectedDocId) return;
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const url = selectedDocId 
-        ? `${GATEWAY_API}/api/graph?doc_id=${selectedDocId}`
-        : `${GATEWAY_API}/api/graph`;
+      const url = `${GATEWAY_API}/api/graph?doc_id=${selectedDocId}`;
         
       const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
@@ -343,6 +345,28 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
     }
   };
 
+  const handleDownload = async () => {
+    if (!audioUrl) return;
+    try {
+      showToast('Downloading podcast...', 'info');
+      const response = await fetch(audioUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      const title = selectedDocTitle ? selectedDocTitle.replace(/\.[^/.]+$/, "") : "document";
+      a.download = `${title}_podcast.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (error) {
+      console.error('Download failed:', error);
+      showToast('Download failed.', 'error');
+    }
+  };
+
   useEffect(() => {
     // Cleanup audio on unmount
     return () => {
@@ -412,17 +436,23 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
       </div>
 
       <div ref={containerRef} className="flex-1 w-full h-full min-h-[400px] bg-slate-100 dark:bg-black/40 relative">
-        {isLoading && (
+        {!selectedDocId && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 px-4 text-center bg-white/40 dark:bg-black/40 backdrop-blur-sm">
+            <Network className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
+            <p className="text-slate-600 dark:text-slate-300 font-medium">Select a file or document to view its Knowledge Graph</p>
+          </div>
+        )}
+        {selectedDocId && isLoading && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neon-purple"></div>
           </div>
         )}
-        {!isLoading && graphData.nodes.length === 0 && (
+        {selectedDocId && !isLoading && graphData.nodes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none px-4 text-center">
             <p className="text-slate-500 dark:text-slate-400 text-sm">No knowledge graph data found. Upload a document to generate topology.</p>
           </div>
         )}
-        {dimensions.width > 0 && (
+        {selectedDocId && dimensions.width > 0 && graphData.nodes.length > 0 && (
           <ForceGraph3D
             ref={fgRef}
             graphData={graphData}
@@ -573,6 +603,16 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
           >
             {playbackRate}x
           </div>
+
+          {/* Download Control */}
+          <button 
+            onClick={handleDownload}
+            disabled={!audioUrl}
+            className="p-1.5 hover:bg-cyan-500/10 rounded-full text-cyan-600 dark:text-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Download Podcast"
+          >
+            <Download className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Hidden Audio Element - Removed as we use new Audio() in JS, but keeping ref if needed for other things, though logic uses new Audio() */}
