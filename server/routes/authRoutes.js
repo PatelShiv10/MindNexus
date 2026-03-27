@@ -23,12 +23,15 @@ const createTransporter = () =>
         },
     });
 
-const sendOtpEmail = async (email, name, otp) => {
+const sendOtpEmail = async (email, name, otp, isPasswordReset = false) => {
     const transporter = createTransporter();
+    const subject = isPasswordReset ? 'Your MindNexus Password Reset Code' : 'Your MindNexus Verification Code';
+    const actionText = isPasswordReset ? 'reset your password' : 'verify your identity';
+    
     await transporter.sendMail({
         from: `"MindNexus" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: 'Your MindNexus Verification Code',
+        subject: subject,
         html: `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 480px; margin: 0 auto; background: #0f172a; color: #e2e8f0; padding: 40px; border-radius: 16px;">
             <div style="text-align: center; margin-bottom: 32px;">
@@ -36,7 +39,7 @@ const sendOtpEmail = async (email, name, otp) => {
                 <p style="color: #64748b; font-size: 13px; margin-top: 4px;">Neural Verification Protocol</p>
             </div>
             <p style="color: #94a3b8; font-size: 15px; margin-bottom: 8px;">Hey <strong style="color:#e2e8f0">${name}</strong>,</p>
-            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 32px;">Use the code below to verify your identity. It expires in <strong style="color:#e2e8f0">10 minutes</strong>.</p>
+            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 32px;">Use the code below to ${actionText}. It expires in <strong style="color:#e2e8f0">10 minutes</strong>.</p>
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 28px; text-align: center; margin-bottom: 32px;">
                 <span style="font-size: 48px; font-weight: 800; letter-spacing: 16px; color: #38bdf8; font-variant-numeric: tabular-nums;">${otp}</span>
             </div>
@@ -175,6 +178,114 @@ router.post('/login', async (req, res) => {
         });
     } catch (error) {
         console.error('Login error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @route   POST /api/auth/profile
+// @desc    Update user profile (name, password)
+// @access  Private
+router.put('/profile', async (req, res) => {
+    try {
+        let token;
+        if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+            token = req.headers.authorization.split(' ')[1];
+        }
+
+        if (!token) {
+            return res.status(401).json({ message: 'Not authorized, no token' });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findById(decoded.id);
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const { name, password, oldPassword } = req.body;
+
+        if (name) user.name = name;
+        
+        if (password) {
+            if (!oldPassword) {
+                return res.status(400).json({ message: 'Old password is required to change password.' });
+            }
+            const isMatch = await user.matchPassword(oldPassword);
+            if (!isMatch) {
+                return res.status(401).json({ message: 'Incorrect old password.' });
+            }
+            user.password = password;
+        }
+
+        await user.save();
+
+        res.json({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            token: generateToken(user._id),
+        });
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({ message: error.message || 'Server Error' });
+    }
+});
+
+// @route   POST /api/auth/forgot-password
+// @desc    Generate OTP and send to user for password reset
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: 'No account found for this email.' });
+        }
+        if (!user.isVerified) {
+            return res.status(403).json({ message: 'Account is not verified.' });
+        }
+
+        const otp = generateOtp();
+        user.otp = otp;
+        user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+        await user.save();
+
+        await sendOtpEmail(email, user.name, otp, true);
+
+        res.json({ message: 'Password reset OTP sent to your email.' });
+    } catch (error) {
+        console.error('Forgot Password error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Verify OTP and reset password
+// @access  Public
+router.post('/reset-password', async (req, res) => {
+    const { email, otp, newPassword } = req.body;
+    try {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(400).json({ message: 'No account found for this email.' });
+        }
+        if (!user.otp || user.otp !== otp) {
+            return res.status(400).json({ message: 'Invalid OTP. Please try again.' });
+        }
+        if (user.otpExpiry < new Date()) {
+            return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+        }
+
+        user.password = newPassword;
+        user.otp = null;
+        user.otpExpiry = null;
+        await user.save();
+
+        res.json({ message: 'Password has been reset successfully. You can now login.' });
+    } catch (error) {
+        console.error('Reset Password error:', error);
         res.status(500).json({ message: error.message });
     }
 });

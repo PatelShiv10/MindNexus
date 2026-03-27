@@ -258,15 +258,61 @@ async def delete_document(
 
     # AI Engine delete (best-effort)
     try:
+        s3_uri = doc.get("s3_uri")
+        params = {"s3_uri": s3_uri} if s3_uri else None
+        
         async with httpx.AsyncClient(timeout=30) as client:
-            await client.delete(f"{settings.AI_ENGINE_URL}/document/{doc_id}")
-            print(f"AI Memory wiped for doc: {doc_id}")
+            await client.delete(f"{settings.AI_ENGINE_URL}/document/{doc_id}", params=params)
+            print(f"AI Memory and S3 wiped for doc: {doc_id}")
     except Exception as e:
         print(f"AI Engine Delete Error: {e}")
 
     await collection.delete_one({"_id": ObjectId(doc_id)})
     return {"message": "Document removed"}
 
+# ──────────────────────────────────────────────
+# GET /api/documents/{doc_id}/download
+# ──────────────────────────────────────────────
+
+@router.get("/{doc_id}/download")
+async def get_document_download_url(
+    doc_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Get a pre-signed S3 URL to download the document with its original filename."""
+    collection = db["documents"]
+    doc = await collection.find_one({"_id": ObjectId(doc_id), "user": ObjectId(current_user["id"])})
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    s3_uri = doc.get("s3_uri")
+    if not s3_uri:
+        raise HTTPException(status_code=400, detail="Document does not have an associated file in S3")
+        
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Request presigned URL from AI Engine
+            ai_response = await client.post(
+                f"{settings.AI_ENGINE_URL}/document/download-url",
+                json={
+                    "s3_uri": s3_uri, 
+                    "filename": doc.get("title", "download.file")
+                }
+            )
+            
+            if ai_response.status_code == 200:
+                return ai_response.json()
+            else:
+                error_text = ai_response.text
+                raise HTTPException(status_code=400, detail=f"Failed to generate download link: {error_text}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Error connecting to AI Engine: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ──────────────────────────────────────────────
 # POST /api/documents/podcast

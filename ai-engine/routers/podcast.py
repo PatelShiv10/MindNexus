@@ -56,7 +56,6 @@ async def generate_podcast_endpoint(request: PodcastRequest):
     if not documents:
         raise HTTPException(status_code=404, detail="Document not found in knowledge base.")
     full_text = "\n".join(documents)
-    # Truncate to ~12 000 chars (~3 000 tokens) to stay under Groq free-tier TPM limit
     MAX_CHARS = 12_000
     if len(full_text) > MAX_CHARS:
         full_text = full_text[:MAX_CHARS]

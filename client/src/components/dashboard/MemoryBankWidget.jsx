@@ -3,7 +3,7 @@ import GlassCard from '../ui/GlassCard';
 import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
 import axios from 'axios';
-import { GATEWAY_API } from '../../config/api';
+import { GATEWAY_API, AI_ENGINE_API } from '../../config/api';
 import { useDropzone } from 'react-dropzone';
 
 export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused, onFileClick, selectedDocId }) {
@@ -50,14 +50,17 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
 
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${GATEWAY_API}/api/documents/upload`, formData, {
+      const uploadResp = await axios.post(`${AI_ENGINE_API}/api/upload-and-process`, formData, {
         headers: { 
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}` 
         }
       });
-      // Refresh list
-      await fetchDocuments();
+      // Immediately append the new document from the response so no wait is needed
+      setDocuments(prev => [uploadResp.data, ...prev]);
+      
+      // Also trigger a refresh in the background just in case
+      fetchDocuments();
     } catch (error) {
       console.error("Upload failed", error);
       alert("Upload failed. Please try again.");
@@ -157,7 +160,7 @@ export default function MemoryBankWidget({ isCollapsed, onToggleFocus, isFocused
         {documents.map((doc) => (
           <div 
             key={doc._id} 
-            onClick={() => onFileClick && onFileClick(doc._id)}
+            onClick={() => onFileClick && onFileClick(doc._id, doc.title)}
             className={clsx(
               "relative overflow-hidden flex items-center justify-between p-3 rounded-lg transition-all border cursor-pointer",
               selectedDocId === doc._id 
