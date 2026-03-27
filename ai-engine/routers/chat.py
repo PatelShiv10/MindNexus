@@ -9,7 +9,7 @@ class ChatRequest(BaseModel):
     query: str
     chat_history: list[dict] = []
     doc_ids: list[str] = []
-    image: Optional[str] = None   # base64-encoded image from the frontend
+    image: Optional[str] = None  
 
 class TitleRequest(BaseModel):
     query: str

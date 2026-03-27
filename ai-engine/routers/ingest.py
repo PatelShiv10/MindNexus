@@ -27,14 +27,12 @@ async def ingest_youtube_endpoint(
     background_tasks: BackgroundTasks = None
 ):
     try:
-        # Call the ingest_youtube service functionality
         result = await ingest_youtube(
             url=request.url,
             doc_id=doc_id,
             user_id=user_id,
             background_tasks=background_tasks
         )
-        # Match expected backend output
         return {
             "status": "success", 
             "message": "YouTube video successfully embedded.", 
@@ -42,7 +40,6 @@ async def ingest_youtube_endpoint(
             "title": result.get("title", "")
         }
     except Exception as e:
-        # The service handles its own exceptions and raises HTTPException, so this provides a fallback
         raise
 
 @router.post("/reindex/{doc_id}")

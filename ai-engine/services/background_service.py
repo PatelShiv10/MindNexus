@@ -1,6 +1,9 @@
 import os
 import asyncio
-from langchain_experimental.graph_transformers import LLMGraphTransformer
+from pydantic import BaseModel, Field
+from typing import List
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_community.graphs.graph_document import GraphDocument, Node as LCNode, Relationship as LCRel
 
 from core.chroma import collection
 from core.neo4j import graph
@@ -8,10 +11,41 @@ from core.llm import llm_graph
 from core.config import settings
 from services.podcast_service import generate_script, synthesize_audio
 
-ALLOWED_NODES = ["Concept", "Process", "Technology", "Person", "Framework", "Metric", "Definition"]
-ALLOWED_RELATIONSHIPS = ["RELATES_TO", "USES", "PART_OF", "DEPENDS_ON", "IMPROVES", "CONTRASTS_WITH", "DEFINES"]
+ALLOWED_NODES = ["Concept", "Theory", "Principle", "Process", "Technology", "Framework", "Tool", "Person", "Organization", "Location", "Event", "Metric", "Problem", "Solution", "Example"]
+ALLOWED_RELATIONSHIPS = ["RELATES_TO", "USES", "PART_OF", "DEPENDS_ON", "HAS_PREREQUISITE", "IMPROVES", "CONTRASTS_WITH", "CAUSES", "SOLVES", "AFFECTS", "PRODUCES", "IMPLEMENTS", "IS_EXAMPLE_OF", "DEFINES"]
+
+class Node(BaseModel):
+    id: str = Field(description="Name or ID of the node. Must be canonicalized (e.g. use 'Artificial Intelligence' instead of 'AI')")
+    type: str = Field(description="Type of the node. Must be strictly from the ALLOWED_NODES list.")
+
+class Edge(BaseModel):
+    source: Node = Field(description="Source node")
+    target: Node = Field(description="Target node")
+    type: str = Field(description="Type of relationship. Must be strictly from the ALLOWED_RELATIONSHIPS list.")
+
+class KnowledgeGraph(BaseModel):
+    nodes: List[Node] = Field(description="List of extracted nodes")
+    relationships: List[Edge] = Field(description="List of extracted relationships")
+
+system_prompt = f"""
+You are a highly precise Knowledge Graph Extractor. 
+Your goal is to extract the core educational concepts, entities, and functional relationships from the text.
+
+CRITICAL RULES:
+1. STRICT SCHEMA ENFORCEMENT: You must ONLY use the following categories.
+ALLOWED_NODES: {', '.join(ALLOWED_NODES)}
+ALLOWED_RELATIONSHIPS: {', '.join(ALLOWED_RELATIONSHIPS)}
+Discard any entity or relationship that does not perfectly fit these categories.
+
+2. ENTITY RESOLUTION & DISAMBIGUATION: You must merge similar entities, synonyms, abbreviations, and acronyms into a single canonical entity representation. 
+For example, "AI", "A.I.", and "Artificial Intelligence" must all be extracted identically as a single node labeled "Artificial Intelligence" to prevent graph fragmentation.
+
+3. Ignore filler words, generic pronouns, and disconnected trivia. Focus on core structural concepts.
+"""
 
 active_podcast_tasks: set[str] = set()
+
+_using_fallback_key = False
 
 
 async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
@@ -19,68 +53,112 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
         print("DEBUG [BG]: Neo4j not connected — skipping graph extraction.")
         return
 
-    # HARD LIMIT: Groq free tier has 100,000 Tokens Per Day limit.
-    # A 71 chunk document consumes ~71,000 to 100,000 tokens instantly.
-    # Truncate to the first 20 chunks (~20,000 tokens) to ensure the API doesn't lock out.
-    MAX_GRAPH_CHUNKS = 20
-    if len(chunks) > MAX_GRAPH_CHUNKS:
-        print(f"DEBUG [BG]: Truncating graph extraction from {len(chunks)} to {MAX_GRAPH_CHUNKS} chunks to prevent TPD limit.")
-        chunks = chunks[:MAX_GRAPH_CHUNKS]
+    print(f"DEBUG [BG]: Starting full graph extraction for {doc_id} ({len(chunks)} chunks)…")
 
-    print(f"DEBUG [BG]: Starting graph extraction for {doc_id} ({len(chunks)} chunks)…")
+    is_pdf = False
+    if chunks and chunks[0].metadata.get("source", "").lower().endswith(".pdf"):
+        is_pdf = True
 
-    transformer = LLMGraphTransformer(
-        llm=llm_graph,
-        allowed_nodes=ALLOWED_NODES,
-        allowed_relationships=ALLOWED_RELATIONSHIPS,
-        strict_mode=False,
-    )
+    dynamic_system_prompt = system_prompt
+    if is_pdf:
+        dynamic_system_prompt += "\n\n4. PDF EXTRACTION MODE: This is dense academic text. You must read line-by-line and aggressively extract every underlying Concept, Theory, and Relationship. Do not summarize; extract exhaustively to build a highly dense graph."
+
+    extraction_prompt = ChatPromptTemplate.from_messages([
+        ("system", dynamic_system_prompt),
+        ("human", "Extract the graph from the following text:\n\n{text}")
+    ])
+    
+    extractor = extraction_prompt | llm_graph.with_structured_output(KnowledgeGraph)
 
     stored = 0
     failed = 0
 
-    for i, chunk in enumerate(chunks):
+    from langchain_core.documents import Document
+    merged_chunks = []
+    
+    current_text = ""
+    for idx, c in enumerate(chunks):
+        current_text += c.page_content + "\n\n"
+        if (idx + 1) % 3 == 0 or idx == len(chunks) - 1:
+            merged_chunks.append(Document(page_content=current_text.strip(), metadata=c.metadata))
+            current_text = ""
+            
+    print(f"DEBUG [BG]: Compressed {len(chunks)} fragments into {len(merged_chunks)} context blocks for graph extraction.")
+
+    chunk_idx = 0
+    while chunk_idx < len(merged_chunks):
+        chunk = merged_chunks[chunk_idx]
         try:
-            graph_docs = transformer.convert_to_graph_documents([chunk])
-
-            for gd in graph_docs:
-                # Stamp every node with doc_id + userId
-                node_ids = {node.id for node in gd.nodes}
-                for node in gd.nodes:
-                    node.properties["doc_id"] = doc_id
-                    node.properties["userId"] = user_id
-
-                # Sanitize relationships: drop any that reference an undeclared node ID.
-                # This prevents Groq's tool_use_failed error where the LLM creates a
-                # relationship to a node it never declared in the nodes array.
-                valid_rels = []
-                for rel in gd.relationships:
-                    src_id = rel.source.id
-                    tgt_id = rel.target.id
-                    if src_id not in node_ids or tgt_id not in node_ids:
-                        print(
-                            f"DEBUG [BG]: Dropping orphan rel [{src_id}]→[{tgt_id}] "
-                            f"(chunk {i+1}) — node not declared."
-                        )
-                        continue
-                    rel.properties["doc_id"] = doc_id
-                    rel.properties["userId"] = user_id
-                    valid_rels.append(rel)
-                gd.relationships = valid_rels
-
-            if graph_docs:
-                graph.add_graph_documents(graph_docs)
-                stored += 1
+            kg: KnowledgeGraph = await extractor.ainvoke({"text": chunk.page_content})
+            
+            lc_nodes = [LCNode(id=n.id, type=n.type) for n in kg.nodes]
+            lc_rels = [LCRel(source=LCNode(id=r.source.id, type=r.source.type), 
+                             target=LCNode(id=r.target.id, type=r.target.type), 
+                             type=r.type) for r in kg.relationships]
+            
+            graph_doc = GraphDocument(nodes=lc_nodes, relationships=lc_rels, source=chunk)
+            graph_docs = [graph_doc] if (lc_nodes or lc_rels) else []
 
         except Exception as e:
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                global _using_fallback_key
+                if settings.GROQ_API_KEY_1 and not _using_fallback_key:
+                    print("WARN [BG]: Rate limit hit on primary key! Switching to GROQ_API_KEY_1...")
+                    _using_fallback_key = True
+                    from langchain_groq import ChatGroq
+                    fallback_llm = ChatGroq(
+                        api_key=settings.GROQ_API_KEY_1,
+                        model="llama-3.3-70b-versatile",
+                        temperature=0,
+                    )
+                    extractor = extraction_prompt | fallback_llm.with_structured_output(KnowledgeGraph)
+                    continue 
+                else:
+                    print(f"WARN [BG]: Rate limit hit in graph batching on block {chunk_idx+1}. Sleeping 10s...")
+                    await asyncio.sleep(10)
+            else:
+                print(f"WARN [BG]: Block {chunk_idx+1}/{len(merged_chunks)} failed for {doc_id}: {e}")
+                
             failed += 1
-            print(f"WARN [BG]: Chunk {i+1}/{len(chunks)} failed for {doc_id}: {e}")
-            continue  # Don't abort — keep processing remaining chunks
+            chunk_idx += 1
+            continue    
+
+        for gd in graph_docs:
+            node_ids = {node.id for node in gd.nodes}
+            for node in gd.nodes:
+                node.properties["doc_id"] = doc_id
+                node.properties["userId"] = user_id
+
+            valid_rels = []
+            for rel in gd.relationships:
+                src_id = rel.source.id
+                tgt_id = rel.target.id
+                if src_id not in node_ids or tgt_id not in node_ids:
+                    print(
+                        f"DEBUG [BG]: Dropping orphan rel [{src_id}]→[{tgt_id}] "
+                        f"(chunk {chunk_idx+1}) — node not declared."
+                    )
+                    continue
+                rel.properties["doc_id"] = doc_id
+                rel.properties["userId"] = user_id
+                valid_rels.append(rel)
+            gd.relationships = valid_rels
+
+        if graph_docs:
+            graph.add_graph_documents(graph_docs)
+            stored += 1
+
+        if (chunk_idx + 1) % 5 == 0 and chunk_idx + 1 < len(merged_chunks):
+            print(f"DEBUG [BG]: Processed {chunk_idx+1}/{len(merged_chunks)} graph chunks. Pausing to clear Token bucket...")
+            await asyncio.sleep(6)
+            
+        chunk_idx += 1
 
     print(
         f"DEBUG [BG]: Graph extraction complete for {doc_id} — "
         f"{stored} chunks stored, {failed} chunks failed."
     )
+
 
 
 async def generate_podcast_background(doc_id: str) -> None:
@@ -101,11 +179,43 @@ async def generate_podcast_background(doc_id: str) -> None:
             print(f"DEBUG [BG]: No text found for {doc_id} — skipping podcast.")
             return
         full_text = "\n".join(documents)
-        # Cap the text length to prevent 413 Payload Too Large / TPM token limit errors
         MAX_PODCAST_CHARS = 12000
-        if len(full_text) > MAX_PODCAST_CHARS:
-            print(f"DEBUG [BG]: Truncating podcast input from {len(full_text)} to {MAX_PODCAST_CHARS} chars to save tokens.")
-            full_text = full_text[:MAX_PODCAST_CHARS]
+        OVERLAP = 1000
+        script = []
+        
+        start_idx = 0
+        while start_idx < len(full_text):
+            end_idx = min(start_idx + MAX_PODCAST_CHARS, len(full_text))
+            batch_text = full_text[start_idx:end_idx]
+            
+            print(f"DEBUG [BG]: Generating podcast batch [{start_idx}:{end_idx}] of {len(full_text)} chars...")
+            
+            try:
+                batch_script = generate_script(batch_text)
+                if batch_script:
+                    script.extend(batch_script)
+            except Exception as e:
+                if "rate limit" in str(e).lower() or "429" in str(e):
+                    global _using_fallback_key
+                    if settings.GROQ_API_KEY_1 and not _using_fallback_key:
+                        print("WARN [BG]: Rate limit reached in Podcast! Switching to GROQ_API_KEY_1...")
+                        _using_fallback_key = True
+                        from langchain_groq import ChatGroq
+                        import services.podcast_service
+                        services.podcast_service.llm_podcast = ChatGroq(
+                            api_key=settings.GROQ_API_KEY_1,
+                            model=settings.LLM_MODEL,
+                            temperature=0.85,
+                        )
+                        continue
+                print(f"ERROR [BG]: Failed podcast generation for batch {start_idx}: {e}")
+                
+            if end_idx >= len(full_text):
+                break
+                
+            start_idx += (MAX_PODCAST_CHARS - OVERLAP)
+            print("DEBUG [BG]: Sleeping 8 seconds before next podcast batch...")
+            await asyncio.sleep(8)
 
         node_ids: list[str] = []
         if graph:
@@ -117,8 +227,7 @@ async def generate_podcast_background(doc_id: str) -> None:
                 node_ids = [r["id"] for r in data if r.get("id")]
             except Exception as e:
                 print(f"DEBUG [BG]: Could not fetch node IDs: {e}")
-
-        script = generate_script(full_text)
+        
         await synthesize_audio(script, filename, node_ids)
         print(f"DEBUG [BG]: Podcast ready — {filename}")
     except Exception as e:
@@ -142,11 +251,8 @@ async def process_graph_and_podcast(
 
     active_podcast_tasks.add(doc_id)
     try:
-        # Run both tasks concurrently
-        await asyncio.gather(
-            extract_graph(doc_id, user_id, chunks),
-            generate_podcast_background(doc_id)
-        )
+        await extract_graph(doc_id, user_id, chunks)
+        await generate_podcast_background(doc_id)
     except Exception as exc:
         print(f"ERROR [BG]: Background pipeline failed for {doc_id}: {exc}")
     finally:

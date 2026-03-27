@@ -10,7 +10,7 @@ import core.chroma
 import core.neo4j  
 import core.llm 
 
-from routers import health, ingest, chat, graph, document, podcast
+from routers import health, ingest, chat, graph, document, podcast, upload
 
 app = FastAPI(title="MindNexus AI Engine", version="2.0.0")
 
@@ -31,6 +31,7 @@ app.include_router(chat.router)
 app.include_router(graph.router)
 app.include_router(document.router)
 app.include_router(podcast.router)
+app.include_router(upload.router)
 
 
 if __name__ == "__main__":

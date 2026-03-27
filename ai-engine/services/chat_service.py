@@ -34,7 +34,6 @@ async def run_rag_chat(
         HumanMessage that combines the text query + base64 image_url.
     """
     try:
-        # Build LangChain message history
         langchain_history = []
         for msg in chat_history:
             if msg.get("role") == "human":
@@ -52,14 +51,11 @@ async def run_rag_chat(
             embedding_function=embedding_function,
         )
 
-        # ── VISION BRANCH ────────────────────────────────────────────────────
         if image:
-            # Ensure the base64 string has a valid data-URI prefix
             base64_data = image
             if not base64_data.startswith("data:"):
                 base64_data = f"data:image/jpeg;base64,{base64_data}"
 
-            # Retrieve relevant text context from ChromaDB (best-effort; graceful if empty)
             retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
             docs = retriever.invoke(query)
             context_text = format_docs(docs) if docs else "No additional context available."
@@ -72,7 +68,6 @@ async def run_rag_chat(
                 f"Retrieved context:\n{context_text}"
             )
 
-            # Multimodal HumanMessage: text query + image_url content parts
             multimodal_content = [
                 {"type": "text", "text": query},
                 {"type": "image_url", "image_url": {"url": base64_data}},
@@ -96,7 +91,6 @@ async def run_rag_chat(
             sources = list(set(doc.metadata.get("source", "Unknown") for doc in docs))
             return {"answer": answer, "sources": sources, "citation": citation}
 
-        # ── TEXT-ONLY RAG BRANCH ──────────────────────────────────────────────
         base_retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
 
         contextualize_q_system_prompt = (
@@ -163,17 +157,26 @@ async def generate_chat_title(query: str) -> str:
     """
     Generate a short 3-4 word title for a new chat session.
     """
+    fallback_title = query[:30].strip() + ("..." if len(query) > 30 else "")
     try:
         title_template = (
-            "Generate a short, concise 3-4 word title for a conversation starting with "
-            "the following user prompt: {query}\n\n"
-            "Output ONLY the title, no quotes or extra text."
+            "You are an expert summarizer. Provide a concise 2 to 4 word title for the following conversation starter.\n"
+            "Rules:\n"
+            "1. Output ONLY the raw title words.\n"
+            "2. NO quotation marks.\n"
+            "3. NO conversational phrasing (Do NOT say 'Here is the title').\n\n"
+            "Conversation starter: {query}\n\nTitle:"
         )
         title_prompt = PromptTemplate.from_template(title_template)
         title_chain = title_prompt | llm | StrOutputParser()
 
         title = title_chain.invoke({"query": query})
-        return title.strip().strip('"').strip("'")
+        title = title.strip().strip('"').strip("'").replace('\n', ' ')
+        
+        if len(title.split()) > 7 or "Here is" in title or "title is" in title:
+            return fallback_title
+            
+        return title
     except Exception as exc:
         print(f"ERROR [chat_title]: {exc}")
-        return query[:30] + ("..." if len(query) > 30 else "")
+        return fallback_title

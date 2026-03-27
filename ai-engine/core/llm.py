@@ -8,8 +8,6 @@ llm = ChatGroq(
     temperature=0.3,
 )
 
-# Dedicated model for graph extraction — needs strong tool-calling ability.
-# llama-3.1-8b-instant is too small and generates invalid structured output.
 llm_graph = ChatGroq(
     api_key=settings.GROQ_API_KEY,
     model="llama-3.3-70b-versatile",

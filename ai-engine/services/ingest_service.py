@@ -47,23 +47,19 @@ def _describe_image(b64_data: str, mime: str = "jpeg") -> str:
 
 def _parse_pdf(path: str) -> list[Document]:
     """Extract text (and optionally image descriptions) from a PDF using pypdfium2."""
-    import pypdfium2 as pdfium  # fast, zero-hang, no internet calls
+    import pypdfium2 as pdfium
 
     docs: list[Document] = []
     pdf = pdfium.PdfDocument(path)
     for page_num in range(len(pdf)):
         page = pdf[page_num]
 
-        # --- Text extraction ---
         page_text = page.get_textpage().get_text_range().strip()
+        
+        page_text = re.sub(r'(?<![.:!?\n])\n(?!\n)', ' ', page_text)
+        page_text = re.sub(r' {2,}', ' ', page_text)
 
-        # --- Image extraction (render page at 150 DPI → base64) ---
         try:
-            # We check for significant visual elements. For PDFs, rendering the whole
-            # page and letting the vision model decide is the most robust approach.
-            # To save tokens, we might only do this if text is sparse, or just do it
-            # if images are found. Here we'll do it if text is < 200 chars (heuristic
-            # for "this is primarily a diagram/slide").
             if len(page_text) < 200:
                 bitmap = page.render(scale=150 / 72)
                 pil_img = bitmap.to_pil()
@@ -96,15 +92,13 @@ def _parse_pptx(path: str) -> list[Document]:
         slide_texts: list[str] = []
 
         for shape in slide.shapes:
-            # Text
             if shape.has_text_frame:
                 for para in shape.text_frame.paragraphs:
                     t = para.text.strip()
                     if t:
                         slide_texts.append(t)
 
-            # Images embedded as picture shapes
-            if shape.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
+            if shape.shape_type == 13:
                 try:
                     img_bytes = shape.image.blob
                     b64 = base64.b64encode(img_bytes).decode()
@@ -139,7 +133,6 @@ def _parse_docx(path: str) -> list[Document]:
         if text:
             all_text.append(text)
 
-        # Check for inline images inside the paragraph
         for run in para.runs:
             for drawing in run._element.findall(f".//{qn('a:blip')}", namespaces=run._element.nsmap):
                 try:
@@ -155,7 +148,6 @@ def _parse_docx(path: str) -> list[Document]:
                 except Exception as e:
                     print(f"WARNING: DOCX image failed: {e}")
 
-    # Also capture table text
     for table in docx.tables:
         for row in table.rows:
             row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
@@ -176,7 +168,6 @@ def _parse_text(path: str) -> list[Document]:
 
 
 def extract_video_id(url: str) -> str:
-    # Matches standard youtube.com/watch?v=, youtu.be/, and embed/ formats
     regex = r"(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^\"&?\/\s]{11})"
     match = re.search(regex, url)
     if match:
@@ -185,10 +176,8 @@ def extract_video_id(url: str) -> str:
 
 def _parse_youtube(url: str) -> tuple[str, list[Document]]:
     """Parse a YouTube URL to extract its title and time-stamped transcript."""
-    # 1. Extract Video ID
     video_id = extract_video_id(url)
 
-    # 2. Fetch Video Title via oEmbed
     title = f"YouTube Video ({video_id})"
     try:
         oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
@@ -198,17 +187,14 @@ def _parse_youtube(url: str) -> tuple[str, list[Document]]:
     except Exception as e:
         print(f"WARNING: oEmbed fetch failed: {e}")
 
-    # 3. Fetch Transcript
     try:
         ytt_api = YouTubeTranscriptApi()
         transcript = ytt_api.fetch(video_id)
     except Exception as e:
         raise ValueError(f"Could not retrieve transcript. Ensure the video has closed captions enabled. (Details: {e})")
 
-    # 4. Format with Timestamps
     text_parts = []
     for snippet in transcript:
-        # Safe extraction handles both the new Object format and the old Dictionary format
         text = getattr(snippet, 'text', None) or snippet.get('text', '')
         start_seconds = getattr(snippet, 'start', None) or snippet.get('start', 0.0)
         
@@ -265,12 +251,24 @@ async def ingest_document(
                 detail="Document appears to be empty or unrecognised format.",
             )
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        if fname.endswith(".pdf"):
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        else:
+            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            
         chunks = splitter.split_documents(documents)
 
         for chunk in chunks:
             chunk.metadata["doc_id"] = doc_id
             chunk.metadata["source"] = file.filename
+            
+            header = f"Source Document: {file.filename}"
+            if "page" in chunk.metadata:
+                header += f", Page: {chunk.metadata['page']}"
+            elif "slide" in chunk.metadata:
+                header += f", Slide: {chunk.metadata['slide']}"
+            
+            chunk.page_content = f"[{header}]\n---\n{chunk.page_content}"
 
         print(f"DEBUG: Embedding {len(chunks)} chunks…")
         Chroma.from_documents(
@@ -324,6 +322,9 @@ async def ingest_youtube(
             chunk.metadata["doc_id"] = doc_id
             chunk.metadata["source"] = url
             chunk.metadata["title"] = title
+            
+            header = f"YouTube Video Title: {title}"
+            chunk.page_content = f"[{header}]\n---\n{chunk.page_content}"
 
         print(f"DEBUG: Embedding {len(chunks)} YouTube chunks…")
         Chroma.from_documents(
@@ -334,16 +335,11 @@ async def ingest_youtube(
         )
         print("DEBUG: YouTube Embeddings stored.")
 
-        # BYPASS NEO4J/KNOWLEDGE GRAPH EXTRACTION FOR YOUTUBE VIDEOS TO SAVE TOKENS
-        # from services.background_service import process_graph_and_podcast
-        # background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
-        # print(f"DEBUG: Background pipeline queued for YouTube doc_id={doc_id}")
         print(f"DEBUG: Skipping Neo4j Background pipeline for YouTube doc_id={doc_id}")
 
         return {"status": "success", "chunks": len(chunks), "title": title}
 
     except ValueError as val_exc:
-        # 400 Bad Request exception specifically requested for transcript failures
         raise HTTPException(status_code=400, detail=str(val_exc))
     except Exception as exc:
         print(f"ERROR [ingest_youtube]: {exc}")
@@ -372,13 +368,11 @@ async def reindex_document(
         for doc_text, meta in zip(results["documents"], results["metadatas"]):
             chunks.append(Document(page_content=doc_text, metadata=meta))
 
-        # Clear old Neo4j graph nodes
         from core.neo4j import graph
         if graph:
             graph.query("MATCH (n {doc_id: $doc_id}) DETACH DELETE n", {"doc_id": doc_id})
             print(f"DEBUG [reindex]: Wiped old graph nodes for {doc_id}")
             
-        # Clear old audio cache
         import os
         from core.config import settings
         for ext in ("mp3", "json"):
@@ -387,7 +381,6 @@ async def reindex_document(
                 os.remove(path)
                 print(f"DEBUG [reindex]: Wiped old audio {path}")
                 
-        # Re-queue pipeline
         print(f"DEBUG [reindex]: Queued background pipeline for {doc_id}")
         background_tasks.add_task(process_graph_and_podcast, doc_id, user_id, chunks)
         
