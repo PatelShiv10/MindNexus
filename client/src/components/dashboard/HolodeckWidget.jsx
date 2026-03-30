@@ -45,6 +45,15 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
     }
   }, [selectedDocId]);
 
+  // Force the graph to re-evaluate nodeThreeObject when the active node changes.
+  // Without this, the glow only shows for one render frame because ForceGraph3D
+  // caches the Three.js objects returned by nodeThreeObject.
+  useEffect(() => {
+    if (fgRef.current) {
+      fgRef.current.refresh();
+    }
+  }, [activeNodeId]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -151,18 +160,32 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
         setCurrentTime(time);
         const currentTimeline = timelineRef.current;
         if (currentTimeline.length > 0 && fgRef.current) {
-          const activeCue = currentTimeline.find(t => Math.abs(time - t.time) < 2);
+          // Find the most recent cue the playhead has passed.
+          // Timeline is in chronological order, so walk backwards to find
+          // the last entry whose time ≤ current playback time.
+          let activeCue = null;
+          for (let i = currentTimeline.length - 1; i >= 0; i--) {
+            if (currentTimeline[i].time <= time) {
+              activeCue = currentTimeline[i];
+              break;
+            }
+          }
           if (activeCue && activeCue.nodeId !== lastFocusedNodeRef.current) {
             lastFocusedNodeRef.current = activeCue.nodeId;
             setActiveNodeId(activeCue.nodeId);
             const node = graphDataRef.current.nodes.find(n => n.id.toLowerCase() === activeCue.nodeId.toLowerCase());
-            if (node) {
-              const distance = 150;
-              const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+            if (node && node.x !== undefined) {
+              const nx = node.x || 0, ny = node.y || 0, nz = node.z || 0;
+              const dist = Math.hypot(nx, ny, nz);
+              const CAMERA_DISTANCE = 200;
+              // Direction vector from origin to node; if node is at origin, default to looking from +Z
+              const dx = dist > 1 ? nx / dist : 0;
+              const dy = dist > 1 ? ny / dist : 0;
+              const dz = dist > 1 ? nz / dist : 1;
               fgRef.current.cameraPosition(
-                { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-                { x: node.x, y: node.y, z: node.z },
-                3000
+                { x: nx + dx * CAMERA_DISTANCE, y: ny + dy * CAMERA_DISTANCE, z: nz + dz * CAMERA_DISTANCE },
+                { x: nx, y: ny, z: nz },  // lookAt → node is centered
+                1500
               );
               showToast(`Focusing: ${node.id}`, 'info');
             }
@@ -499,7 +522,23 @@ export default function HolodeckWidget({ isCollapsed, onToggleFocus, isFocused, 
             height={dimensions.height}
             showNavInfo={false}
             cooldownTicks={100}
-            onEngineStop={() => {}}
+            onEngineStop={() => {
+              // Freeze all nodes in place once the simulation stabilizes.
+              // Setting fx/fy/fz pins a node so the force engine won't move it.
+              if (fgRef.current) {
+                graphData.nodes.forEach(node => {
+                  node.fx = node.x;
+                  node.fy = node.y;
+                  node.fz = node.z;
+                });
+              }
+            }}
+            onNodeDragEnd={(node) => {
+              // Pin the node at its new position after user drags it
+              node.fx = node.x;
+              node.fy = node.y;
+              node.fz = node.z;
+            }}
             onNodeHover={(node) => document.body.style.cursor = node ? 'pointer' : null}
           />
         )}
