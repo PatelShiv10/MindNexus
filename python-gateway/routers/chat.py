@@ -19,7 +19,7 @@ class ChatRequest(BaseModel):
     chat_history: list[dict] = []
     doc_ids: list[str] = []
     sessionId: Optional[str] = None
-    image: Optional[str] = None  # base64-encoded image from the frontend
+    image: Optional[str] = None
 
 
 def _session_to_dict(session: dict) -> dict:
@@ -33,7 +33,6 @@ def _session_to_dict(session: dict) -> dict:
                 session[field] = session[field].replace(tzinfo=timezone.utc)
     if "messages" in session:
         for m in session["messages"]:
-            # Serialize ObjectId _id on individual messages (e.g. from YouTube ingestion)
             if "_id" in m and isinstance(m["_id"], ObjectId):
                 m["_id"] = str(m["_id"])
             if "timestamp" in m and m.get("timestamp"):
@@ -44,10 +43,6 @@ def _session_to_dict(session: dict) -> dict:
                     m["createdAt"] = m["createdAt"].replace(tzinfo=timezone.utc)
     return session
 
-
-# ──────────────────────────────────────────────
-# POST /api/chat/
-# ──────────────────────────────────────────────
 
 @router.post("/")
 async def chat_with_cortex(
@@ -61,7 +56,6 @@ async def chat_with_cortex(
     """
     collection = db["chatsessions"]
 
-    # 1. Call AI Engine
     try:
         combined_query = f"{body.systemPrompt}\n\nStudent: {body.query}" if body.systemPrompt else body.query
         async with httpx.AsyncClient(timeout=120) as client:
@@ -85,7 +79,6 @@ async def chat_with_cortex(
 
     now = datetime.now(timezone.utc)
 
-    # 2. Handle session persistence
     if body.sessionId:
         session = await collection.find_one(
             {"_id": ObjectId(body.sessionId), "user": ObjectId(current_user["id"])}
@@ -102,7 +95,7 @@ async def chat_with_cortex(
                             {
                                 "role": "user",
                                 "content": body.query,
-                                "image": body.image,   # persist image in MongoDB
+                                "image": body.image,
                                 "sources": [],
                                 "timestamp": now,
                             },
@@ -134,7 +127,7 @@ async def chat_with_cortex(
                 {
                     "role": "user",
                     "content": body.query,
-                    "image": body.image,   # persist image for new sessions too
+                    "image": body.image,
                     "sources": [],
                     "timestamp": now,
                 },
@@ -149,9 +142,6 @@ async def chat_with_cortex(
     return {"answer": answer, "sources": sources, "sessionId": session_id}
 
 
-# ──────────────────────────────────────────────
-# GET /api/chat/
-# ──────────────────────────────────────────────
 
 @router.get("/")
 async def get_chat_history(
@@ -177,10 +167,6 @@ async def get_chat_history(
     return sessions
 
 
-# ──────────────────────────────────────────────
-# GET /api/chat/{session_id}
-# ──────────────────────────────────────────────
-
 @router.get("/{session_id}")
 async def get_session(
     session_id: str,
@@ -196,10 +182,6 @@ async def get_session(
         raise HTTPException(status_code=404, detail="Session not found")
     return _session_to_dict(session)
 
-
-# ──────────────────────────────────────────────
-# DELETE /api/chat/{session_id}
-# ──────────────────────────────────────────────
 
 @router.delete("/{session_id}")
 async def delete_session(

@@ -8,20 +8,11 @@ from middleware.logging import RequestLoggingMiddleware
 from routers import documents, chat, graph, system
 
 
-# ──────────────────────────────────────────────
-# Lifespan: DB connect / disconnect
-# ──────────────────────────────────────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
     yield
     await close_db()
-
-
-# ──────────────────────────────────────────────
-# App
-# ──────────────────────────────────────────────
 
 app = FastAPI(
     title="MindNexus Python Gateway",
@@ -34,7 +25,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── CORS (mirror the JS server — allow all origins for development) ──
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,19 +33,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Request Logger ──
 app.add_middleware(RequestLoggingMiddleware)
 
-# ── Routers ──
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(graph.router)
 app.include_router(system.router)
 
-
-# ──────────────────────────────────────────────
-# Root health check
-# ──────────────────────────────────────────────
 
 @app.get("/", tags=["Health"])
 async def root():

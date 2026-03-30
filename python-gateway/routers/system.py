@@ -6,10 +6,6 @@ from core.config import settings
 router = APIRouter(prefix="/api", tags=["System"])
 
 
-# ──────────────────────────────────────────────
-# GET /api/system-status
-# ──────────────────────────────────────────────
-
 @router.get("/system-status")
 async def system_status():
     """Check the health of the Python gateway and the AI Engine."""

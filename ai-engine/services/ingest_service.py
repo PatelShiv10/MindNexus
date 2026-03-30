@@ -28,8 +28,9 @@ def _describe_image(b64_data: str, mime: str = "jpeg") -> str:
                 {
                     "type": "text",
                     "text": (
-                        "Describe this educational image, chart, or slide in extreme detail "
-                        "so that a student can fully understand its contents through text alone."
+                        "Describe this educational image, chart, or slide in extreme detail. "
+                        "Focus heavily on extracting the core educational concepts, data points, "
+                        "and semantic relationships shown. Ignore purely decorative visual elements."
                     ),
                 },
                 {
@@ -253,6 +254,8 @@ async def ingest_document(
 
         if fname.endswith(".pdf"):
             splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        elif fname.endswith((".pptx", ".ppt")):
+            splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=400)
         else:
             splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             

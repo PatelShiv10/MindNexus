@@ -3,10 +3,6 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-# ──────────────────────────────────────────────
-# Pydantic Schemas
-# ──────────────────────────────────────────────
-
 class DocumentBase(BaseModel):
     title: str
     file_type: str
@@ -29,10 +25,6 @@ class DocumentOut(BaseModel):
     class Config:
         populate_by_name = True
 
-
-# ──────────────────────────────────────────────
-# Collection helpers
-# ──────────────────────────────────────────────
 
 def get_document_collection(db):
     """Return the 'documents' collection from a Motor database."""

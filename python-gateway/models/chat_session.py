@@ -3,20 +3,12 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 
-# ──────────────────────────────────────────────
-# Sub-document: Message
-# ──────────────────────────────────────────────
-
 class Message(BaseModel):
     role: Literal["user", "ai"]
     content: str
     sources: list[str] = []
     timestamp: Optional[datetime] = None
 
-
-# ──────────────────────────────────────────────
-# Pydantic Schemas
-# ──────────────────────────────────────────────
 
 class ChatSessionCreate(BaseModel):
     user_id: str
@@ -35,10 +27,6 @@ class ChatSessionListItem(BaseModel):
     title: str
     updated_at: Optional[datetime] = None
 
-
-# ──────────────────────────────────────────────
-# Collection helpers
-# ──────────────────────────────────────────────
 
 def get_chat_collection(db):
     """Return the 'chatsessions' collection from a Motor database."""

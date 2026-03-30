@@ -19,10 +19,6 @@ def _doc_to_dict(doc: dict) -> dict:
     return doc
 
 
-# ──────────────────────────────────────────────
-# POST /api/documents/upload
-# ──────────────────────────────────────────────
-
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
@@ -35,7 +31,6 @@ async def upload_document(
     """
     collection = db["documents"]
 
-    # 1. Create initial DB record
     doc = {
         "title": file.filename,
         "user": ObjectId(current_user["id"]),
@@ -47,12 +42,10 @@ async def upload_document(
     result = await collection.insert_one(doc)
     doc_id = str(result.inserted_id)
 
-    # 2. Read file bytes
     file_bytes = await file.read()
     doc["size"] = len(file_bytes)
     await collection.update_one({"_id": result.inserted_id}, {"$set": {"size": len(file_bytes)}})
 
-    # 3. Forward to AI Engine
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             ai_response = await client.post(
@@ -81,9 +74,6 @@ async def upload_document(
     doc["user"] = current_user["id"]
     return doc
 
-# ──────────────────────────────────────────────
-# POST /api/documents/reindex/{doc_id}
-# ──────────────────────────────────────────────
 @router.post("/reindex/{doc_id}", status_code=status.HTTP_200_OK)
 async def reindex_document_metadata(
     doc_id: str,
@@ -119,9 +109,6 @@ async def reindex_document_metadata(
         )
         raise HTTPException(status_code=500, detail=str(e))
 
-# ──────────────────────────────────────────────
-# POST /api/documents/youtube
-# ──────────────────────────────────────────────
 
 from pydantic import BaseModel
 
@@ -139,10 +126,8 @@ async def ingest_youtube_url(
     and create a dedicated chat session. Does NOT store in the documents archive.
     """
     import uuid
-    # Use a ephemeral doc_id — not stored in the documents collection
     doc_id = str(uuid.uuid4())
 
-    # Forward to AI Engine for embedding
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             ai_response = await client.post(
@@ -155,7 +140,6 @@ async def ingest_youtube_url(
                 ai_data = ai_response.json()
                 title = ai_data.get("title", "YouTube Video")
 
-                # Create a dedicated chat session for this video
                 chats_collection = db["chatsessions"]
                 ai_message = {
                     "_id": ObjectId(),
@@ -191,10 +175,6 @@ async def ingest_youtube_url(
         raise HTTPException(status_code=500, detail=f"Internal Gateway Error: {str(e)}")
 
 
-# ──────────────────────────────────────────────
-# GET /api/documents/
-# ──────────────────────────────────────────────
-
 @router.get("")
 async def get_user_documents(
     current_user: dict = Depends(get_current_user),
@@ -207,10 +187,6 @@ async def get_user_documents(
     return docs
 
 
-# ──────────────────────────────────────────────
-# DELETE /api/documents/purge
-# ──────────────────────────────────────────────
-
 @router.delete("/purge")
 async def purge_all_data(
     current_user: dict = Depends(get_current_user),
@@ -221,7 +197,6 @@ async def purge_all_data(
     2. Delete all documents for the user from MongoDB.
     3. Delete all chat sessions for the user from MongoDB.
     """
-    # AI Engine purge (best-effort)
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             await client.delete(f"{settings.AI_ENGINE_URL}/purge")
@@ -235,10 +210,6 @@ async def purge_all_data(
 
     return {"message": "System Reset Complete"}
 
-
-# ──────────────────────────────────────────────
-# DELETE /api/documents/{id}
-# ──────────────────────────────────────────────
 
 @router.delete("/{doc_id}")
 async def delete_document(
@@ -256,7 +227,6 @@ async def delete_document(
     if str(doc["user"]) != current_user["id"]:
         raise HTTPException(status_code=401, detail="Not authorized")
 
-    # AI Engine delete (best-effort)
     try:
         s3_uri = doc.get("s3_uri")
         params = {"s3_uri": s3_uri} if s3_uri else None
@@ -270,9 +240,6 @@ async def delete_document(
     await collection.delete_one({"_id": ObjectId(doc_id)})
     return {"message": "Document removed"}
 
-# ──────────────────────────────────────────────
-# GET /api/documents/{doc_id}/download
-# ──────────────────────────────────────────────
 
 @router.get("/{doc_id}/download")
 async def get_document_download_url(
@@ -293,7 +260,6 @@ async def get_document_download_url(
         
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            # Request presigned URL from AI Engine
             ai_response = await client.post(
                 f"{settings.AI_ENGINE_URL}/document/download-url",
                 json={
@@ -314,9 +280,6 @@ async def get_document_download_url(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ──────────────────────────────────────────────
-# POST /api/documents/podcast
-# ──────────────────────────────────────────────
 
 @router.post("/podcast")
 async def generate_podcast(
@@ -340,10 +303,6 @@ async def generate_podcast(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate podcast: {e}")
 
-
-# ──────────────────────────────────────────────
-# GET /api/documents/podcast-status/{doc_id}
-# ──────────────────────────────────────────────
 
 @router.get("/podcast-status/{doc_id}")
 async def get_podcast_status(

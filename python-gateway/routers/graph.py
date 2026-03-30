@@ -9,10 +9,6 @@ from core.security import get_current_user
 router = APIRouter(prefix="/api/graph", tags=["Graph"])
 
 
-# ──────────────────────────────────────────────
-# GET /api/graph/
-# ──────────────────────────────────────────────
-
 @router.get("")
 async def get_graph(
     request: Request,

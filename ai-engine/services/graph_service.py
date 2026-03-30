@@ -12,15 +12,21 @@ async def get_graph_data(doc_id: str | None, user_id: str | None) -> dict:
         print(f"DEBUG [graph]: doc_id={doc_id}, user_id={user_id}")
 
         if doc_id:
+            # Filter on RELATIONSHIP doc_id, not node doc_id.
+            # Reason: add_graph_documents uses MERGE on nodes by (id, type),
+            # so when the same entity appears across documents, the node's
+            # doc_id property gets overwritten by the last MERGE. Relationships
+            # are unique per extraction and always retain the correct doc_id.
             query = """
-            MATCH (n {doc_id: $doc_id, userId: $user_id})-[r]->(m {doc_id: $doc_id, userId: $user_id})
+            MATCH (n)-[r {doc_id: $doc_id}]->(m)
+            WHERE n.userId = $user_id
             RETURN n.id AS source, type(r) AS type, m.id AS target
             LIMIT 500
             """
             params = {"doc_id": doc_id, "user_id": user_id}
         else:
             query = """
-            MATCH (n {userId: $user_id})-[r]->(m {userId: $user_id})
+            MATCH (n {userId: $user_id})-[r]->(m)
             RETURN n.id AS source, type(r) AS type, m.id AS target
             LIMIT 500
             """
@@ -31,11 +37,13 @@ async def get_graph_data(doc_id: str | None, user_id: str | None) -> dict:
         nodes: set[str] = set()
         links: list[dict] = []
         for record in data:
-            nodes.add(record["source"])
-            nodes.add(record["target"])
+            source_id = record["source"]
+            target_id = record["target"]
+            nodes.add(source_id)
+            nodes.add(target_id)
             links.append({
-                "source": record["source"],
-                "target": record["target"],
+                "source": source_id,
+                "target": target_id,
                 "type": record["type"],
             })
 

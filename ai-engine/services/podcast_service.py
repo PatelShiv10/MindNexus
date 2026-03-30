@@ -93,6 +93,10 @@ async def synthesize_audio(
     file_path = os.path.join(output_dir, filename)
     timeline_path = os.path.join(output_dir, filename.replace(".mp3", ".json"))
 
+    # Sort node IDs longest-first so we prefer the most specific match.
+    # e.g. "Machine Learning" beats "Learning", "Neural Network" beats "Network".
+    sorted_node_ids = sorted(node_ids, key=len, reverse=True)
+
     timeline: list[dict] = []
     current_offset = 0.0
     temp_files: list[str] = []
@@ -113,11 +117,20 @@ async def synthesize_audio(
             comm = edge_tts.Communicate(text, voice)
             await comm.save(temp_file)
 
+            # Find the most specific (longest) node name mentioned in this segment.
             text_lower = text.lower()
-            for node_id in node_ids:
-                if node_id.lower() in text_lower:
-                    timeline.append({"time": current_offset, "nodeId": node_id})
-                    break
+            best_match = None
+            for node_id in sorted_node_ids:
+                node_lower = node_id.lower()
+                # Skip very short names (≤ 2 chars) — too generic to be meaningful
+                if len(node_lower) <= 2:
+                    continue
+                if node_lower in text_lower:
+                    best_match = node_id
+                    break  # Already sorted longest-first, so first hit is best
+
+            if best_match:
+                timeline.append({"time": current_offset, "nodeId": best_match})
 
             try:
                 current_offset += MP3(temp_file).info.length

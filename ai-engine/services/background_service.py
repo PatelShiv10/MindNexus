@@ -14,6 +14,9 @@ from services.podcast_service import generate_script, synthesize_audio
 ALLOWED_NODES = ["Concept", "Theory", "Principle", "Process", "Technology", "Framework", "Tool", "Person", "Organization", "Location", "Event", "Metric", "Problem", "Solution", "Example"]
 ALLOWED_RELATIONSHIPS = ["RELATES_TO", "USES", "PART_OF", "DEPENDS_ON", "HAS_PREREQUISITE", "IMPROVES", "CONTRASTS_WITH", "CAUSES", "SOLVES", "AFFECTS", "PRODUCES", "IMPLEMENTS", "IS_EXAMPLE_OF", "DEFINES"]
 
+CANONICAL_NODE_TYPE_MAP = {t.lower(): t for t in ALLOWED_NODES}
+CANONICAL_REL_TYPE_MAP = {t.lower(): t for t in ALLOWED_RELATIONSHIPS}
+
 class Node(BaseModel):
     id: str = Field(description="Name or ID of the node. Must be canonicalized (e.g. use 'Artificial Intelligence' instead of 'AI')")
     type: str = Field(description="Type of the node. Must be strictly from the ALLOWED_NODES list.")
@@ -27,25 +30,95 @@ class KnowledgeGraph(BaseModel):
     nodes: List[Node] = Field(description="List of extracted nodes")
     relationships: List[Edge] = Field(description="List of extracted relationships")
 
-system_prompt = f"""
-You are a highly precise Knowledge Graph Extractor. 
-Your goal is to extract the core educational concepts, entities, and functional relationships from the text.
+# Threshold: documents with this many chunks or more use the lite prompt
+LARGE_DOC_CHUNK_THRESHOLD = 28
+
+system_prompt_dense = f"""
+You are an expert Knowledge Graph Extractor optimized for maximum density and accuracy.
+
+STRICT SCHEMA:
+- ALLOWED_NODES: {', '.join(ALLOWED_NODES)}
+- ALLOWED_RELATIONSHIPS: {', '.join(ALLOWED_RELATIONSHIPS)}
+If unsure, default to Concept and RELATES_TO. Never discard meaningful information.
 
 CRITICAL RULES:
-1. STRICT SCHEMA ENFORCEMENT: You must ONLY use the following categories.
-ALLOWED_NODES: {', '.join(ALLOWED_NODES)}
-ALLOWED_RELATIONSHIPS: {', '.join(ALLOWED_RELATIONSHIPS)}
-Discard any entity or relationship that does not perfectly fit these categories.
+1. DENSITY TARGET: Extract 15-20 nodes and 20-30 relationships per text block. Every sentence should contribute at least one relationship. Build a richly interconnected graph — isolated nodes are a failure.
 
-2. ENTITY RESOLUTION & DISAMBIGUATION: You must merge similar entities, synonyms, abbreviations, and acronyms into a single canonical entity representation. 
-For example, "AI", "A.I.", and "Artificial Intelligence" must all be extracted identically as a single node labeled "Artificial Intelligence" to prevent graph fragmentation.
+2. ENTITY RESOLUTION: Canonicalize all entities to their full, standard Title Case form. "AI", "A.I.", "ai" → "Artificial Intelligence". "ML" → "Machine Learning". "NLP" → "Natural Language Processing". Always use the most complete, unambiguous form so that entities naturally merge across different text blocks.
 
-3. Ignore filler words, generic pronouns, and disconnected trivia. Focus on core structural concepts.
+3. RELATIONSHIP SPECIFICITY: Prefer specific relationship types (USES, PART_OF, DEPENDS_ON, CAUSES, IMPLEMENTS) over generic RELATES_TO. Use RELATES_TO only as a last resort.
+
+4. CONNECT EVERYTHING: Every extracted node must participate in at least one relationship. If a concept is mentioned alongside another, find and name their relationship.
+
+5. Ignore filler words, generic pronouns, page numbers, and formatting artifacts. Focus on domain-specific concepts and their structural relationships.
+"""
+
+system_prompt_lite = f"""
+You are an expert Knowledge Graph Extractor optimized for accuracy and conciseness.
+
+STRICT SCHEMA:
+- ALLOWED_NODES: {', '.join(ALLOWED_NODES)}
+- ALLOWED_RELATIONSHIPS: {', '.join(ALLOWED_RELATIONSHIPS)}
+If unsure, default to Concept and RELATES_TO.
+
+CRITICAL RULES:
+1. DENSITY TARGET: Extract 8-12 nodes and 10-15 relationships per text block. Focus on the MOST important concepts and their key relationships. Prioritize quality over quantity.
+
+2. ENTITY RESOLUTION: Canonicalize all entities to their full, standard Title Case form. "AI", "A.I.", "ai" → "Artificial Intelligence". "ML" → "Machine Learning". Always use the most complete, unambiguous form so that entities naturally merge across different text blocks.
+
+3. RELATIONSHIP SPECIFICITY: Prefer specific relationship types (USES, PART_OF, DEPENDS_ON, CAUSES, IMPLEMENTS) over generic RELATES_TO.
+
+4. CONNECT EVERYTHING: Every extracted node must participate in at least one relationship.
+
+5. Ignore filler words, generic pronouns, page numbers, and formatting artifacts. Focus only on the most significant domain-specific concepts.
 """
 
 active_podcast_tasks: set[str] = set()
 
 _using_fallback_key = False
+
+
+def _normalize_node_type(node_type: str | None) -> str:
+    if not node_type:
+        return "Concept"
+    return CANONICAL_NODE_TYPE_MAP.get(node_type.strip().lower(), "Concept")
+
+
+def _normalize_rel_type(rel_type: str | None) -> str:
+    if not rel_type:
+        return "RELATES_TO"
+    return CANONICAL_REL_TYPE_MAP.get(rel_type.strip().lower(), "RELATES_TO")
+
+
+def _clean_node_id(node_id: str | None) -> str:
+    """Normalize to collapsed-whitespace Title Case for consistent Neo4j MERGE."""
+    if not node_id:
+        return ""
+    return " ".join(node_id.split()).strip().title()
+
+
+def _build_graph_doc(
+    doc_id: str,
+    user_id: str,
+    source_chunk,
+    nodes: list[LCNode],
+    relationships: list[LCRel],
+) -> GraphDocument:
+    gd = GraphDocument(nodes=nodes, relationships=relationships, source=source_chunk)
+    node_ids = {node.id for node in gd.nodes}
+    for node in gd.nodes:
+        node.properties["doc_id"] = doc_id
+        node.properties["userId"] = user_id
+
+    valid_rels: list[LCRel] = []
+    for rel in gd.relationships:
+        if rel.source.id not in node_ids or rel.target.id not in node_ids:
+            continue
+        rel.properties["doc_id"] = doc_id
+        rel.properties["userId"] = user_id
+        valid_rels.append(rel)
+    gd.relationships = valid_rels
+    return gd
 
 
 async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
@@ -56,12 +129,30 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
     print(f"DEBUG [BG]: Starting full graph extraction for {doc_id} ({len(chunks)} chunks)…")
 
     is_pdf = False
-    if chunks and chunks[0].metadata.get("source", "").lower().endswith(".pdf"):
-        is_pdf = True
+    is_ppt = False
+    is_word = False
+    if chunks:
+        source = chunks[0].metadata.get("source", "").lower()
+        if source.endswith(".pdf"):
+            is_pdf = True
+        elif source.endswith((".ppt", ".pptx")):
+            is_ppt = True
+        elif source.endswith((".doc", ".docx")):
+            is_word = True
 
-    dynamic_system_prompt = system_prompt
+    # Choose dense vs lite prompt based on chunk count
+    is_large_doc = len(chunks) >= LARGE_DOC_CHUNK_THRESHOLD
+    base_prompt = system_prompt_lite if is_large_doc else system_prompt_dense
+    if is_large_doc:
+        print(f"DEBUG [BG]: Large document ({len(chunks)} chunks ≥ {LARGE_DOC_CHUNK_THRESHOLD}) — using lite extraction (8-12 nodes/chunk).")
+
+    dynamic_system_prompt = base_prompt
     if is_pdf:
-        dynamic_system_prompt += "\n\n4. PDF EXTRACTION MODE: This is dense academic text. You must read line-by-line and aggressively extract every underlying Concept, Theory, and Relationship. Do not summarize; extract exhaustively to build a highly dense graph."
+        dynamic_system_prompt += "\n\n4. PDF EXTRACTION MODE: This is dense academic text. You must read line-by-line and extract every underlying Concept, Theory, and Relationship. Do not summarize; extract thoroughly."
+    elif is_ppt:
+        dynamic_system_prompt += "\n\n4. PPT EXTRACTION MODE: This is a presentation containing bullet points and image descriptions. Carefully integrate the image descriptions with the slide text to form meaningful educational concepts and relationships."
+    elif is_word:
+        dynamic_system_prompt += "\n\n4. WORD EXTRACTION MODE: This is a Word document with narrative text, headings, tables, and possible image descriptions. Extract from all sections and preserve continuity across adjacent chunks."
 
     extraction_prompt = ChatPromptTemplate.from_messages([
         ("system", dynamic_system_prompt),
@@ -72,32 +163,59 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
 
     stored = 0
     failed = 0
+    all_graph_docs: list[GraphDocument] = []
 
-    from langchain_core.documents import Document
-    merged_chunks = []
-    
-    current_text = ""
-    for idx, c in enumerate(chunks):
-        current_text += c.page_content + "\n\n"
-        if (idx + 1) % 3 == 0 or idx == len(chunks) - 1:
-            merged_chunks.append(Document(page_content=current_text.strip(), metadata=c.metadata))
-            current_text = ""
-            
-    print(f"DEBUG [BG]: Compressed {len(chunks)} fragments into {len(merged_chunks)} context blocks for graph extraction.")
+    print(f"DEBUG [BG]: Single-pass dense extraction for {doc_id} ({len(chunks)} chunks)…")
 
     chunk_idx = 0
-    while chunk_idx < len(merged_chunks):
-        chunk = merged_chunks[chunk_idx]
+    while chunk_idx < len(chunks):
+        chunk = chunks[chunk_idx]
         try:
             kg: KnowledgeGraph = await extractor.ainvoke({"text": chunk.page_content})
-            
-            lc_nodes = [LCNode(id=n.id, type=n.type) for n in kg.nodes]
-            lc_rels = [LCRel(source=LCNode(id=r.source.id, type=r.source.type), 
-                             target=LCNode(id=r.target.id, type=r.target.type), 
-                             type=r.type) for r in kg.relationships]
-            
-            graph_doc = GraphDocument(nodes=lc_nodes, relationships=lc_rels, source=chunk)
-            graph_docs = [graph_doc] if (lc_nodes or lc_rels) else []
+
+            # Build node map — Title Case IDs ensure natural MERGE hubs in Neo4j.
+            node_map: dict[str, LCNode] = {}
+            for n in kg.nodes:
+                clean_id = _clean_node_id(n.id)
+                if not clean_id:
+                    continue
+                if clean_id not in node_map:
+                    node_map[clean_id] = LCNode(id=clean_id, type=_normalize_node_type(n.type))
+
+            # Build relationships — only LLM-extracted edges, no synthetic ones.
+            rels: list[LCRel] = []
+            for r in kg.relationships:
+                src_id = _clean_node_id(r.source.id)
+                tgt_id = _clean_node_id(r.target.id)
+                if not src_id or not tgt_id or src_id == tgt_id:
+                    continue
+                if src_id not in node_map:
+                    node_map[src_id] = LCNode(id=src_id, type=_normalize_node_type(r.source.type))
+                if tgt_id not in node_map:
+                    node_map[tgt_id] = LCNode(id=tgt_id, type=_normalize_node_type(r.target.type))
+                rels.append(
+                    LCRel(
+                        source=node_map[src_id],
+                        target=node_map[tgt_id],
+                        type=_normalize_rel_type(r.type),
+                    )
+                )
+
+            if not node_map:
+                print(f"WARN [BG]: Chunk {chunk_idx+1} produced no nodes, skipping.")
+                chunk_idx += 1
+                continue
+
+            graph_doc = _build_graph_doc(
+                doc_id=doc_id,
+                user_id=user_id,
+                source_chunk=chunk,
+                nodes=list(node_map.values()),
+                relationships=rels,
+            )
+            all_graph_docs.append(graph_doc)
+            stored += 1
+            print(f"DEBUG [BG]: Chunk {chunk_idx+1}/{len(chunks)} → {len(node_map)} nodes, {len(rels)} rels")
 
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
@@ -112,51 +230,31 @@ async def extract_graph(doc_id: str, user_id: str, chunks: list) -> None:
                         temperature=0,
                     )
                     extractor = extraction_prompt | fallback_llm.with_structured_output(KnowledgeGraph)
-                    continue 
+                    continue
                 else:
-                    print(f"WARN [BG]: Rate limit hit in graph batching on block {chunk_idx+1}. Sleeping 10s...")
+                    print(f"WARN [BG]: Rate limit hit on chunk {chunk_idx+1}. Sleeping 10s...")
                     await asyncio.sleep(10)
             else:
-                print(f"WARN [BG]: Block {chunk_idx+1}/{len(merged_chunks)} failed for {doc_id}: {e}")
-                
+                print(f"WARN [BG]: Chunk {chunk_idx+1}/{len(chunks)} failed for {doc_id}: {e}")
+
             failed += 1
             chunk_idx += 1
-            continue    
+            continue
 
-        for gd in graph_docs:
-            node_ids = {node.id for node in gd.nodes}
-            for node in gd.nodes:
-                node.properties["doc_id"] = doc_id
-                node.properties["userId"] = user_id
-
-            valid_rels = []
-            for rel in gd.relationships:
-                src_id = rel.source.id
-                tgt_id = rel.target.id
-                if src_id not in node_ids or tgt_id not in node_ids:
-                    print(
-                        f"DEBUG [BG]: Dropping orphan rel [{src_id}]→[{tgt_id}] "
-                        f"(chunk {chunk_idx+1}) — node not declared."
-                    )
-                    continue
-                rel.properties["doc_id"] = doc_id
-                rel.properties["userId"] = user_id
-                valid_rels.append(rel)
-            gd.relationships = valid_rels
-
-        if graph_docs:
-            graph.add_graph_documents(graph_docs)
-            stored += 1
-
-        if (chunk_idx + 1) % 5 == 0 and chunk_idx + 1 < len(merged_chunks):
-            print(f"DEBUG [BG]: Processed {chunk_idx+1}/{len(merged_chunks)} graph chunks. Pausing to clear Token bucket...")
+        if (chunk_idx + 1) % 5 == 0 and chunk_idx + 1 < len(chunks):
+            print(f"DEBUG [BG]: Processed {chunk_idx+1}/{len(chunks)} chunks. Pausing for rate limit…")
             await asyncio.sleep(6)
-            
+
         chunk_idx += 1
+
+    # Commit all graph documents — Neo4j MERGE ensures entities with the same
+    # Title Case ID become natural hub nodes that connect different regions.
+    if all_graph_docs:
+        graph.add_graph_documents(all_graph_docs)
 
     print(
         f"DEBUG [BG]: Graph extraction complete for {doc_id} — "
-        f"{stored} chunks stored, {failed} chunks failed."
+        f"{stored} chunks stored, {failed} failed."
     )
 
 
