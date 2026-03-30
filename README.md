@@ -62,7 +62,7 @@ MindNexus is composed of **four services** that work together:
 |---|---|---|
 | `client` | React frontend | 5173 |
 | `server` | Auth (signup/login/JWT) via Node.js + MongoDB | 3000 |
-| `python-gateway` | Proxy for documents, chat, and graph (JWT-protected) | 8080 |
+| `python-gateway` | Proxy for documents, chat, and graph (JWT-protected) | 8001 |
 | `ai-engine` | RAG pipeline, graph extraction, podcast generation, S3 | 8000 |
 
 > **Databases** are managed via Docker Compose: MongoDB (27017) and Neo4j (7474/7687).
@@ -81,7 +81,6 @@ MindNexus is composed of **four services** that work together:
 | 📝 Adaptive Exams | Generate, take, and review AI-created exams from your documents |
 | 📦 Archives | Browse, filter, and download all uploaded documents |
 | 👤 Auth | JWT-based signup/login with role support (user/doctor/admin) |
-| ⚙️ Settings | Manage profile, API keys, preferences, and privacy |
 
 ---
 
@@ -142,14 +141,17 @@ You also need accounts / API keys for:
 
 ```env
 PORT=3000
-MONGO_URI=mongodb://localhost:27017/mindnexus
+AI_ENGINE_URL=http://127.0.0.1:8000
+MONGO_URI=mongodb://localhost:27017/mindnexus - change this if you are using a different port for mongodb
 JWT_SECRET=your_jwt_secret_at_least_32_chars_long
+EMAIL_USER=
+EMAIL_PASS=
 ```
 
 ### `python-gateway/.env`
 
 ```env
-PORT=8080
+PORT=8001
 MONGO_URI=mongodb://localhost:27017/mindnexus - change this if you are using a different port for mongodb
 JWT_SECRET=your jwt secret at least 32 chars long   # Must match server
 AI_ENGINE_URL=http://localhost:8000
@@ -168,23 +170,12 @@ LLM_MODEL=llama-3.1-8b-instant
 EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_BASE_URL=http://localhost:XXXX - change this if you are using a different port for ollama
 
-# Vector Store
-CHROMA_PATH=./chroma_db
-
-# Neo4j
-NEO4J_URL=bolt://localhost:XXXX - change this if you are using a different port for neo4j
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=password - change this if you are using a different password for neo4j
-
 # AWS S3
 AWS_ACCESS_KEY_ID=your_aws_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
 AWS_REGION=us-east-1 - change this if you are using a different region for aws s3
 AWS_S3_BUCKET_NAME=your_bucket_name
 
-# Auth
-MONGO_URI=mongodb://localhost:27017/mindnexus - change this if you are using a different port for mongodb
-JWT_SECRET=your jwt secret at least 32 chars long
 ```
 
 > ⚠️ **Important:** `JWT_SECRET` must be identical across all three backend services.
@@ -223,7 +214,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
-python main.py
+uvicorn main:app --reload --port 8000
 ```
 
 Runs on **http://localhost:8000**
@@ -241,7 +232,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+uvicorn main:app --reload --port 8001
 ```
 
 Runs on **http://localhost:8080**
